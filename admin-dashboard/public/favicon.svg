@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Coderz favicon">
+  <rect width="64" height="64" fill="#022a55"/>
+  <rect x="14" y="16" width="36" height="22" rx="2.5" ry="2.5" fill="none" stroke="#ffffff" stroke-width="4"/>
+  <line x1="32" y1="38" x2="32" y2="46" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+  <line x1="24" y1="48" x2="40" y2="48" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+</svg>

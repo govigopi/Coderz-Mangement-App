@@ -1,0 +1,49 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+!.env*.example
+
+# Node / web builds
+node_modules/
+dist/
+build/
+.parcel-cache/
+.vite/
+coverage/
+
+# Vercel
+.vercel/
+
+# Backend runtime files
+backend/uploads/
+backend/tmp/
+
+# Flutter / Dart
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.packages
+mobile/.metadata
+mobile/build/
+mobile/.pub-cache/
+
+# Flutter platform folders (if generated locally)
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/ios/Pods/
+mobile/ios/.symlinks/
+mobile/ios/Flutter/Flutter.podspec
