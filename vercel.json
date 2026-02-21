@@ -23,7 +23,7 @@
     },
     {
       "src": "/(.*)",
-      "dest": "/admin-dashboard/dist/index.html"
+      "dest": "/index.html"
     }
   ]
 }
