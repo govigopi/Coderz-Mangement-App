@@ -6,6 +6,17 @@ export default defineConfig({
     build: {
         outDir: 'dist',
         emptyOutDir: true,
+        chunkSizeWarningLimit: 650,
+        rollupOptions: {
+            output: {
+                manualChunks: {
+                    vendor: ['react', 'react-dom', 'react-router-dom'],
+                    charts: ['recharts'],
+                    pdfTools: ['jspdf', 'html2canvas', 'pdf-lib'],
+                    http: ['axios'],
+                },
+            },
+        },
     },
     server: {
         port: 5174,
