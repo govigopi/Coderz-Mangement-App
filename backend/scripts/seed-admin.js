@@ -13,7 +13,7 @@ const seed = async () => {
     },
     {
       name: 'Admin',
-      email: 'admin@institute.com',
+      email: 'admin@coderz',
       password: 'code123',
       role: 'admin',
     },
