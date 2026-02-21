@@ -19,11 +19,16 @@
       "dest": "/api/index.js"
     },
     {
-      "handle": "filesystem"
+      "src": "/assets/(.*)",
+      "dest": "/admin-dashboard/dist/assets/$1"
+    },
+    {
+      "src": "/favicon.ico",
+      "dest": "/admin-dashboard/dist/favicon.svg"
     },
     {
       "src": "/(.*)",
-      "dest": "/index.html"
+      "dest": "/admin-dashboard/dist/index.html"
     }
   ]
 }
