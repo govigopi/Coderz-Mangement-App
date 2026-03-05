@@ -19,6 +19,39 @@ const generateBillNumber = async () => {
   return `BILL-${String(count + 1).padStart(5, '0')}`;
 };
 
+const recomputeInvoiceFromIncome = async (invoiceId) => {
+  const invoice = await Invoice.findById(invoiceId);
+  if (!invoice) return null;
+
+  const paidAgg = await Income.aggregate([
+    { $match: { source: 'fees', invoiceId: invoice._id } },
+    { $group: { _id: null, total: { $sum: '$amount' } } },
+  ]);
+  const paidAmount = paidAgg[0]?.total || 0;
+
+  invoice.paidAmount = paidAmount;
+  if (paidAmount <= 0) invoice.status = 'pending';
+  else if (paidAmount >= invoice.amount) invoice.status = 'paid';
+  else invoice.status = 'partial';
+  await invoice.save();
+  return invoice;
+};
+
+const recomputeStudentTotals = async (studentId) => {
+  if (!studentId) return null;
+  const student = await Student.findById(studentId);
+  if (!student) return null;
+
+  const paidAgg = await Income.aggregate([
+    { $match: { source: 'fees', studentId: student._id } },
+    { $group: { _id: null, total: { $sum: '$amount' } } },
+  ]);
+  student.paidAmount = paidAgg[0]?.total || 0;
+  student.pendingAmount = Math.max(0, (student.totalFees || 0) - (student.paidAmount || 0));
+  await student.save();
+  return student;
+};
+
 router.get('/', async (req, res) => {
   try {
     const { studentId, status } = req.query;
@@ -203,7 +236,7 @@ router.post('/', async (req, res) => {
       status: 'pending',
       description: description || 'Admission / Course fees',
       invoiceNumber,
-      dueDate: dueDate ? new Date(dueDate) : undefined,
+      dueDate: dueDate ? new Date(dueDate) : new Date(),
     });
     await invoice.save();
 
@@ -273,6 +306,120 @@ router.post('/:id/pay', async (req, res) => {
         paymentMethod: income.paymentMethod || '',
       },
     });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.put('/:id', async (req, res) => {
+  try {
+    const invoice = await Invoice.findById(req.params.id);
+    if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+    const hasAmount = Object.prototype.hasOwnProperty.call(req.body, 'amount');
+    const nextAmount = hasAmount ? Number(req.body.amount) : Number(invoice.amount);
+    if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+      return res.status(400).json({ error: 'Amount must be greater than 0' });
+    }
+
+    invoice.amount = nextAmount;
+    if (Object.prototype.hasOwnProperty.call(req.body, 'description')) {
+      invoice.description = (req.body.description || '').trim() || undefined;
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body, 'dueDate')) {
+      invoice.dueDate = req.body.dueDate ? new Date(req.body.dueDate) : undefined;
+    }
+
+    if (invoice.paidAmount <= 0) invoice.status = 'pending';
+    else if (invoice.paidAmount >= invoice.amount) invoice.status = 'paid';
+    else invoice.status = 'partial';
+
+    await invoice.save();
+    await recomputeStudentTotals(invoice.studentId);
+    const updated = await Invoice.findById(invoice._id)
+      .populate('studentId', 'rollNo name mobile');
+    res.json(updated);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.delete('/:id', async (req, res) => {
+  try {
+    const invoice = await Invoice.findById(req.params.id);
+    if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+    const studentId = invoice.studentId;
+    await Income.deleteMany({ invoiceId: invoice._id, source: 'fees' });
+    await Invoice.deleteOne({ _id: invoice._id });
+    await recomputeStudentTotals(studentId);
+    res.json({ message: 'Invoice deleted and linked payments adjusted' });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.put('/payments/:paymentId', async (req, res) => {
+  try {
+    const payment = await Income.findById(req.params.paymentId);
+    if (!payment || payment.source !== 'fees' || !payment.invoiceId) {
+      return res.status(404).json({ error: 'Payment not found' });
+    }
+
+    const nextAmount = Number(req.body.amount);
+    if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+      return res.status(400).json({ error: 'Amount must be greater than 0' });
+    }
+
+    const invoice = await Invoice.findById(payment.invoiceId);
+    if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+    payment.amount = nextAmount;
+    payment.paymentMethod = (req.body.paymentMethod || '').trim() || undefined;
+    if (Object.prototype.hasOwnProperty.call(req.body, 'paymentDate')) {
+      payment.date = req.body.paymentDate ? new Date(req.body.paymentDate) : payment.date;
+    }
+    await payment.save();
+
+    const updatedInvoice = await recomputeInvoiceFromIncome(invoice._id);
+    await recomputeStudentTotals(payment.studentId || updatedInvoice?.studentId);
+
+    const populatedInvoice = await Invoice.findById(invoice._id)
+      .populate('studentId', 'rollNo name mobile');
+    res.json({
+      message: 'Payment updated',
+      invoice: populatedInvoice,
+      payment: {
+        _id: payment._id,
+        date: payment.date,
+        billNo: payment.billNo || '',
+        amountPaid: payment.amount,
+        invoiceId: payment.invoiceId,
+        invoiceNumber: populatedInvoice?.invoiceNumber || '',
+        paymentMethod: payment.paymentMethod || '',
+      },
+    });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.delete('/payments/:paymentId', async (req, res) => {
+  try {
+    const payment = await Income.findById(req.params.paymentId);
+    if (!payment || payment.source !== 'fees' || !payment.invoiceId) {
+      return res.status(404).json({ error: 'Payment not found' });
+    }
+
+    const invoiceId = payment.invoiceId;
+    const studentId = payment.studentId;
+    await Income.deleteOne({ _id: payment._id });
+
+    await recomputeInvoiceFromIncome(invoiceId);
+    await recomputeStudentTotals(studentId);
+
+    const populatedInvoice = await Invoice.findById(invoiceId).populate('studentId', 'rollNo name mobile');
+    res.json({ message: 'Payment deleted and totals adjusted', invoice: populatedInvoice });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }

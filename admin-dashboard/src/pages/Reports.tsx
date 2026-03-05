@@ -248,7 +248,24 @@ export default function Reports() {
             <span className="sr-only">{monthWiseExcelLoading ? 'Exporting Month-wise Report' : 'Export Month-wise Report (CSV)'}</span>
           </button>
         </div>
-        <div className="overflow-x-auto">
+        <div className="md:hidden p-3 space-y-3">
+          {businessData.monthWise.map((m) => (
+            <div key={m.month} className="border border-slate-200 rounded-lg p-3">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <p className="font-semibold text-slate-800">{MONTHS[m.month - 1]}</p>
+                <p className="text-sm text-slate-600">Admissions: {m.admissions}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div><p className="text-slate-500">Business Value</p><p className="font-medium text-emerald-700">{fmt(m.businessValue)}</p></div>
+                <div><p className="text-slate-500">Collection</p><p className="font-medium text-green-700">{fmt(m.income)}</p></div>
+                <div><p className="text-slate-500">Expense</p><p className="font-medium text-red-700">{fmt(m.expense)}</p></div>
+                <div><p className="text-slate-500">Profit</p><p className="font-medium text-slate-800">{fmt(m.profit)}</p></div>
+                <div className="col-span-2"><p className="text-slate-500">Avg/Admission</p><p className="font-medium text-slate-800">{fmt(m.avgFeePerAdmission)}</p></div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="hidden md:block overflow-x-auto">
         <table className="w-full min-w-[980px]">
           <thead className="bg-slate-100 text-left text-sm text-slate-600">
             <tr>
@@ -281,7 +298,21 @@ export default function Reports() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         <div className="bg-white rounded-lg shadow border border-slate-200 overflow-hidden">
           <h2 className="p-4 font-semibold text-slate-800 border-b border-slate-200">Course-wise Breakdown</h2>
-          <div className="overflow-x-auto">
+          <div className="md:hidden p-3 space-y-3">
+            {businessData.courseBreakdown.length === 0 ? (
+              <p className="text-slate-500">No data</p>
+            ) : businessData.courseBreakdown.map((c) => (
+              <div key={c.courseName} className="border border-slate-200 rounded-lg p-3">
+                <p className="font-semibold text-slate-800">{c.courseName}</p>
+                <div className="grid grid-cols-3 gap-2 mt-2 text-sm">
+                  <div><p className="text-slate-500">Admissions</p><p className="font-medium text-slate-800">{c.admissions}</p></div>
+                  <div><p className="text-slate-500">Collected</p><p className="font-medium text-green-700">{fmt(c.collected)}</p></div>
+                  <div><p className="text-slate-500">Pending</p><p className="font-medium text-amber-700">{fmt(c.pending)}</p></div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block overflow-x-auto">
           <table className="w-full min-w-[560px]">
             <thead className="bg-slate-100 text-left text-sm text-slate-600">
               <tr>
@@ -309,7 +340,22 @@ export default function Reports() {
 
         <div className="bg-white rounded-lg shadow border border-slate-200 overflow-hidden">
           <h2 className="p-4 font-semibold text-slate-800 border-b border-slate-200">Year-wise Summary</h2>
-          <div className="overflow-x-auto">
+          <div className="md:hidden p-3 space-y-3">
+            {businessData.yearlySummary.map((y) => (
+              <div key={y.year} className="border border-slate-200 rounded-lg p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-semibold text-slate-800">{y.year}</p>
+                  <p className="text-sm text-slate-600">Admissions: {y.admissions}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2 mt-2 text-sm">
+                  <div><p className="text-slate-500">Business Value</p><p className="font-medium text-emerald-700">{fmt(y.businessValue)}</p></div>
+                  <div><p className="text-slate-500">Collection</p><p className="font-medium text-green-700">{fmt(y.collection)}</p></div>
+                  <div className="col-span-2"><p className="text-slate-500">Expense</p><p className="font-medium text-red-700">{fmt(y.expense)}</p></div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block overflow-x-auto">
           <table className="w-full min-w-[640px]">
             <thead className="bg-slate-100 text-left text-sm text-slate-600">
               <tr>
@@ -417,7 +463,18 @@ function TopList({ title, rows }: { title: string; rows: Array<{ rollNo: string;
   return (
     <div className="bg-white rounded-lg shadow border border-slate-200 overflow-hidden">
       <h2 className="p-4 font-semibold text-slate-800 border-b border-slate-200">{title}</h2>
-      <table className="w-full">
+      <div className="md:hidden p-3 space-y-3">
+        {rows.length === 0 ? (
+          <p className="text-slate-500">No data</p>
+        ) : rows.map((r) => (
+          <div key={`${r.rollNo}-${r.name}`} className="border border-slate-200 rounded-lg p-3">
+            <p className="font-semibold text-slate-800">{r.name}</p>
+            <p className="text-sm text-slate-600">{r.rollNo}</p>
+            <p className="text-sm font-medium text-slate-800 mt-1">{fmt(r.amount)}</p>
+          </div>
+        ))}
+      </div>
+      <table className="hidden md:table w-full">
         <thead className="bg-slate-100 text-left text-sm text-slate-600">
           <tr>
             <th className="p-3">Roll No</th>

@@ -164,6 +164,14 @@ export const invoicesApi = {
   get: (id: string) => api.get<Invoice>(`/invoices/${id}`),
   create: (data: { studentId: string; amount: number; description?: string; dueDate?: string }) =>
     api.post<Invoice>('/invoices', data),
+  update: (id: string, data: { amount?: number; description?: string; dueDate?: string }) =>
+    api.put<Invoice>(`/invoices/${id}`, data),
+  delete: (id: string) =>
+    api.delete<{ message: string }>(`/invoices/${id}`),
+  updatePayment: (paymentId: string, data: { amount: number; paymentMethod?: string; paymentDate?: string }) =>
+    api.put<{ message: string; invoice: Invoice; payment: PaymentReceipt }>(`/invoices/payments/${paymentId}`, data),
+  deletePayment: (paymentId: string) =>
+    api.delete<{ message: string; invoice?: Invoice }>(`/invoices/payments/${paymentId}`),
   pay: (id: string, amount: number, paymentMethod?: string, paymentDate?: string) =>
     api.post<{ invoice: Invoice; payment: PaymentReceipt }>(`/invoices/${id}/pay`, { amount, paymentMethod, paymentDate }),
   payments: (studentId?: string) =>

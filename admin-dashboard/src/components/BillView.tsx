@@ -25,8 +25,8 @@ export default function BillView({ invoice, onClose, onSavePdf, savingPdf = fals
   const handlePrint = () => window.print()
 
   return (
-    <div id="bill-print-area" className="bg-white rounded-lg shadow-lg max-w-2xl mx-auto p-8 print:shadow-none print:p-0">
-      <div className="flex justify-between items-start mb-6 print:mb-4">
+    <div id="bill-print-area" className="bg-white rounded-lg shadow-lg max-w-2xl mx-auto p-4 sm:p-8 print:shadow-none print:p-0">
+      <div className="flex flex-col sm:flex-row justify-between items-start gap-3 mb-6 print:mb-4">
         <div>
           <img src={coderzLogo} alt="Coderz Academy" className="h-16 w-auto mb-2" />
           <p className="text-slate-600 text-sm leading-5">44B,SG DEVANATHAN STREET,</p>
@@ -50,7 +50,7 @@ export default function BillView({ invoice, onClose, onSavePdf, savingPdf = fals
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-6 mb-6 print:grid-cols-2 print:gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mb-6 print:grid-cols-2 print:gap-4">
         <div>
           <p className="text-slate-500 text-xs uppercase tracking-wide mb-1">Bill To</p>
           <p className="font-semibold text-slate-800">{rollNo ? `${rollNo} - ${name}` : name}</p>
@@ -58,7 +58,7 @@ export default function BillView({ invoice, onClose, onSavePdf, savingPdf = fals
           {email && <p className="text-slate-600 text-sm">{email}</p>}
           {address && <p className="text-slate-600 text-sm mt-1">{address}</p>}
         </div>
-        <div className="text-right">
+        <div className="text-left sm:text-right">
           <p className="text-slate-500 text-xs uppercase tracking-wide mb-1">Invoice Details</p>
           <p><span className="text-slate-500">Invoice:</span> <strong>{invoice.invoiceNumber || invoice._id.slice(-8)}</strong></p>
           <p><span className="text-slate-500">Date:</span> {new Date(invoice.date).toLocaleDateString('en-IN')}</p>
@@ -73,7 +73,7 @@ export default function BillView({ invoice, onClose, onSavePdf, savingPdf = fals
         <thead>
           <tr className="bg-slate-100 text-left text-sm text-slate-600">
             <th className="p-3 border-b border-slate-200">Description</th>
-            <th className="p-3 border-b border-slate-200 text-right w-32">Amount</th>
+            <th className="p-3 border-b border-slate-200 text-right w-24 sm:w-32">Amount</th>
           </tr>
         </thead>
         <tbody>
@@ -85,7 +85,7 @@ export default function BillView({ invoice, onClose, onSavePdf, savingPdf = fals
       </table>
 
       <div className="mt-6 flex justify-end">
-        <div className="text-right space-y-1 min-w-[200px]">
+        <div className="w-full sm:w-auto text-right space-y-1">
           <p className="flex justify-between"><span className="text-slate-500">Total Fee:</span> <strong>{fmt(invoice.amount)}</strong></p>
           <p className="flex justify-between"><span className="text-slate-500">Paid Fee:</span> {fmt(invoice.paidAmount)}</p>
           <p className="flex justify-between border-t border-slate-200 pt-2 mt-2">

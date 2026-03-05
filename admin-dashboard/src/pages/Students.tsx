@@ -141,7 +141,60 @@ export default function Students() {
         <p>Loading...</p>
       ) : (
         <div className="bg-white rounded-lg shadow border border-slate-200 overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className="md:hidden p-3 space-y-3">
+            {pagedList.map((s) => (
+              <div key={s._id} className="border border-slate-200 rounded-lg p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="font-semibold text-slate-800">{s.name}</p>
+                    <p className="text-sm text-slate-600">{s.rollNo ? s.rollNo.replace(/CA+$/i, '') : '-'}</p>
+                  </div>
+                  <select
+                    value={normalizeStatus(s.status)}
+                    onChange={(e) => updateStatus(s, e.target.value as 'active' | 'completed' | 'drop_out')}
+                    className="w-[96px] border border-slate-300 rounded px-1.5 py-1 text-xs"
+                  >
+                    <option value="active">Active</option>
+                    <option value="completed">Completed</option>
+                    <option value="drop_out">Drop Out</option>
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-2 mt-3 text-sm">
+                  <div>
+                    <p className="text-slate-500">Mobile</p>
+                    <p className="font-medium text-slate-700 break-words">{s.mobile || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Mode</p>
+                    <p className="font-medium text-slate-700 capitalize">{s.mode || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Admission</p>
+                    <p className="font-medium text-slate-700">{new Date(s.admissionDate).toLocaleDateString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Total Fee</p>
+                    <p className="font-medium text-slate-700 break-words">Rs {s.totalFees}</p>
+                  </div>
+                </div>
+                <p className="text-sm text-slate-600 mt-2 break-words">
+                  <span className="text-slate-500">Courses: </span>
+                  {(s.courses || []).map((c: { name: string }) => c.name).join(', ') || '-'}
+                </p>
+                <div className="flex items-center gap-3 mt-3 text-sm">
+                  <Link to={`/students/${s._id}`} className="text-slate-700 underline">Edit</Link>
+                  <button
+                    type="button"
+                    onClick={() => remove(s)}
+                    className="text-red-700 underline"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full min-w-[1100px]">
               <thead className="bg-slate-100 text-left text-sm text-slate-600">
                 <tr>

@@ -56,7 +56,7 @@ export default function Layout() {
   }, [location.pathname])
 
   return (
-    <div className="h-screen flex bg-slate-100 overflow-hidden">
+    <div className="min-h-screen md:h-screen flex bg-slate-100 overflow-hidden">
       <ToastHost />
 
       {!isSidebarOpen && (
@@ -80,7 +80,7 @@ export default function Layout() {
       )}
 
       <aside
-        className={`w-56 h-screen shrink-0 bg-slate-800 text-white flex flex-col fixed inset-y-0 left-0 z-40 overflow-hidden transform transition-transform ${
+        className={`w-56 min-h-screen md:h-screen shrink-0 bg-slate-800 text-white flex flex-col fixed inset-y-0 left-0 z-40 overflow-hidden transform transition-transform ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}
       >
@@ -121,7 +121,7 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main ref={mainRef} className="flex-1 h-screen overflow-y-auto px-4 pb-4 pt-16 md:p-6 md:pt-6 md:ml-56">
+      <main ref={mainRef} className="flex-1 min-h-screen md:h-screen overflow-y-auto px-3 pb-4 pt-16 sm:px-4 md:p-6 md:pt-6 md:ml-56">
         <Outlet />
       </main>
     </div>

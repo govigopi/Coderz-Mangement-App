@@ -20,6 +20,10 @@ function normalizeRollNo(value: string) {
   return raw.startsWith('CA') ? raw : `CA${raw}`
 }
 
+function extractApiError(err: unknown, fallback: string) {
+  return (err as { response?: { data?: { error?: string } } })?.response?.data?.error || (err as Error).message || fallback
+}
+
 export default function Invoices() {
   const PAGE_SIZE = 10
   const [list, setList] = useState<Invoice[]>([])
@@ -31,6 +35,7 @@ export default function Invoices() {
   const [collectMethod, setCollectMethod] = useState('')
   const [collectDate, setCollectDate] = useState(todayISO())
   const [collectSaving, setCollectSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const [pdfLoading, setPdfLoading] = useState<string | null>(null)
   const [savingBillPdf, setSavingBillPdf] = useState(false)
   const [savingReceiptPdf, setSavingReceiptPdf] = useState(false)
@@ -52,15 +57,28 @@ export default function Invoices() {
   const [history, setHistory] = useState<PaymentHistory[]>([])
   const [allPayments, setAllPayments] = useState<PaymentHistory[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
+  const [editPaymentTarget, setEditPaymentTarget] = useState<PaymentHistory | null>(null)
+  const [editPaymentForm, setEditPaymentForm] = useState({ updateAmount: '', paymentMethod: '', paymentDate: todayISO() })
+  const [paymentSaving, setPaymentSaving] = useState(false)
+  const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null)
   const [invoiceSearch, setInvoiceSearch] = useState('')
   const [exportingExcel, setExportingExcel] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
+
+  async function refreshInvoices() {
+    try {
+      const r = await invoicesApi.list()
+      setList(r.data)
+    } catch {
+      setList([])
+    }
+  }
 
   useEffect(() => {
     if (filter === 'payment_history') return
     setLoading(true)
     setCurrentPage(1)
-    invoicesApi.list().then((r) => setList(r.data)).catch(() => {}).finally(() => setLoading(false))
+    refreshInvoices().finally(() => setLoading(false))
   }, [filter])
 
   useEffect(() => {
@@ -189,6 +207,79 @@ export default function Invoices() {
       setViewBill(data)
     } catch (e) {
       showToast({ message: (e as Error).message, type: 'error' })
+    }
+  }
+
+  async function removeInvoice(inv: Invoice) {
+    const invoiceLabel = inv.invoiceNumber || inv._id.slice(-6)
+    if (!confirm(`Delete invoice ${invoiceLabel}?`)) return
+
+    setDeletingId(inv._id)
+    try {
+      await invoicesApi.delete(inv._id)
+      setList((prev) => prev.filter((i) => i._id !== inv._id))
+      if (viewBill?._id === inv._id) setViewBill(null)
+      showToast({ message: 'Invoice deleted', type: 'success' })
+    } catch (e) {
+      showToast({ message: extractApiError(e, 'Failed to delete invoice'), type: 'error' })
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  function openEditPayment(h: PaymentHistory) {
+    setEditPaymentTarget(h)
+    setEditPaymentForm({
+      updateAmount: String(h.amountPaid || ''),
+      paymentMethod: h.paymentMethod || '',
+      paymentDate: h.date ? String(h.date).slice(0, 10) : todayISO(),
+    })
+  }
+
+  async function savePaymentEdit() {
+    if (!editPaymentTarget) return
+    const amount = Number(editPaymentForm.updateAmount)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      showToast({ message: 'Enter valid update amount', type: 'error' })
+      return
+    }
+
+    setPaymentSaving(true)
+    try {
+      await invoicesApi.updatePayment(editPaymentTarget._id, {
+        amount,
+        paymentMethod: editPaymentForm.paymentMethod.trim() || undefined,
+        paymentDate: editPaymentForm.paymentDate || undefined,
+      })
+      await Promise.all([
+        refreshInvoices(),
+        refreshAllPayments(),
+        invoicesApi.payments(historyStudentId || undefined).then((r) => setHistory(r.data)).catch(() => setHistory([])),
+      ])
+      setEditPaymentTarget(null)
+      showToast({ message: 'Payment updated', type: 'success' })
+    } catch (e) {
+      showToast({ message: extractApiError(e, 'Failed to update payment'), type: 'error' })
+    } finally {
+      setPaymentSaving(false)
+    }
+  }
+
+  async function removePayment(h: PaymentHistory) {
+    if (!confirm(`Delete payment ${h.billNo || h._id.slice(-6)}?`)) return
+    setDeletingPaymentId(h._id)
+    try {
+      await invoicesApi.deletePayment(h._id)
+      await Promise.all([
+        refreshInvoices(),
+        refreshAllPayments(),
+        invoicesApi.payments(historyStudentId || undefined).then((r) => setHistory(r.data)).catch(() => setHistory([])),
+      ])
+      showToast({ message: 'Payment deleted and totals adjusted', type: 'success' })
+    } catch (e) {
+      showToast({ message: extractApiError(e, 'Failed to delete payment'), type: 'error' })
+    } finally {
+      setDeletingPaymentId(null)
     }
   }
 
@@ -337,6 +428,7 @@ export default function Invoices() {
           studentId,
           amount: totalFees,
           description: `Course Fee: ${totalFees}`,
+          dueDate: todayISO(),
         })
         invoice = created.data
       }
@@ -666,6 +758,65 @@ export default function Invoices() {
           </div>
         </div>
       )}
+      {editPaymentTarget && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+            <h2 className="text-lg font-semibold text-slate-800 mb-1">Edit Payment</h2>
+            <p className="text-sm text-slate-500 mb-4">
+              {editPaymentTarget.billNo || editPaymentTarget._id.slice(-6)} | {editPaymentTarget.invoiceNumber || '-'}
+            </p>
+            <p className="text-xs text-slate-500 -mt-2 mb-3">This will update only this selected bill/payment entry.</p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Update Amount</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={editPaymentForm.updateAmount}
+                  onChange={(e) => setEditPaymentForm((f) => ({ ...f, updateAmount: e.target.value }))}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Payment Method</label>
+                <input
+                  type="text"
+                  value={editPaymentForm.paymentMethod}
+                  onChange={(e) => setEditPaymentForm((f) => ({ ...f, paymentMethod: e.target.value }))}
+                  placeholder="Cash / UPI / Bank"
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Payment Date</label>
+                <input
+                  type="date"
+                  value={editPaymentForm.paymentDate}
+                  onChange={(e) => setEditPaymentForm((f) => ({ ...f, paymentDate: e.target.value }))}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-5">
+              <button
+                type="button"
+                disabled={paymentSaving}
+                onClick={savePaymentEdit}
+                className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50"
+              >
+                {paymentSaving ? 'Saving...' : 'Update'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditPaymentTarget(null)}
+                className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {filter === 'payment_history' ? (
         <div>
           <div className="bg-white rounded-lg border border-slate-200 shadow p-4 mb-4 max-w-md">
@@ -687,7 +838,91 @@ export default function Invoices() {
             <p className="text-slate-500">No payments found.</p>
           ) : (
             <div className="bg-white rounded-lg shadow overflow-hidden border border-slate-200">
-              <div className="overflow-x-auto">
+              <div className="md:hidden p-3 space-y-3">
+                {pagedHistory.map((h) => (
+                  <div key={h._id} className="border border-slate-200 rounded-lg p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="font-semibold text-slate-800">{h.billNo || h._id.slice(-6)}</p>
+                        <p className="text-sm text-slate-600">{new Date(h.date).toLocaleDateString()}</p>
+                      </div>
+                      <p className="text-sm font-medium text-slate-700">{fmt(h.amountPaid)}</p>
+                    </div>
+                    <p className="text-sm text-slate-700 mt-2">
+                      {`${h.student?.rollNo ? `${h.student.rollNo} ` : ''}${h.student?.name || '-'}`}
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 mt-2 text-sm">
+                      <div>
+                        <p className="text-slate-500">Invoice</p>
+                        <p className="font-medium text-slate-700 break-words">{h.invoiceNumber || '-'}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-500">Method</p>
+                        <p className="font-medium text-slate-700 break-words">{h.paymentMethod || '-'}</p>
+                      </div>
+                      <div className="col-span-2">
+                        <p className="text-slate-500">Remaining Pending</p>
+                        <p className="font-medium text-slate-700">{h.remainingPending == null ? '-' : fmt(h.remainingPending)}</p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-3 mt-3 text-sm">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const student = h.student || selectedHistoryStudent
+                          if (!student) return
+                          const invoice: Invoice = {
+                            _id: h.invoiceId || '',
+                            invoiceNumber: h.invoiceNumber || undefined,
+                            studentId: {
+                              _id: student._id,
+                              rollNo: student.rollNo,
+                              name: student.name,
+                              mobile: student.mobile,
+                            },
+                            amount: h.invoiceAmount,
+                            paidAmount: h.alreadyPaid + h.amountPaid,
+                            date: h.date,
+                            status: h.remainingPending && h.remainingPending > 0 ? 'partial' : 'paid',
+                          }
+                          const receipt: PaymentReceipt = {
+                            _id: h._id,
+                            date: h.date,
+                            billNo: h.billNo || '',
+                            amountPaid: h.amountPaid,
+                            alreadyPaid: h.alreadyPaid,
+                            remainingPending: h.remainingPending ?? 0,
+                            invoiceId: h.invoiceId || '',
+                            invoiceNumber: h.invoiceNumber || undefined,
+                            paymentMethod: h.paymentMethod || undefined,
+                          }
+                          const studentLabel = `${student.rollNo ? `${student.rollNo} ` : ''}${student.name || 'Student'}`
+                          setViewReceipt({ invoice, receipt, studentLabel })
+                        }}
+                        className="text-slate-700 underline"
+                      >
+                        Receipt
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openEditPayment(h)}
+                        className="text-blue-700 underline"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        disabled={deletingPaymentId === h._id}
+                        onClick={() => removePayment(h)}
+                        className="text-red-700 underline disabled:opacity-50"
+                      >
+                        {deletingPaymentId === h._id ? 'Deleting...' : 'Delete'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="hidden md:block overflow-x-auto">
               <table className="w-full table-fixed">
                 <thead className="bg-slate-100 text-left text-sm text-slate-600">
                   <tr>
@@ -698,7 +933,7 @@ export default function Invoices() {
                     <th className="px-4 py-3">Invoice</th>
                     <th className="px-4 py-3">Payment Method</th>
                     <th className="px-4 py-3">Remaining Pending</th>
-                    <th className="px-4 py-3">Receipt</th>
+                    <th className="px-4 py-3">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -712,43 +947,60 @@ export default function Invoices() {
                       <td className="px-4 py-3 break-words">{h.paymentMethod || '-'}</td>
                       <td className="px-4 py-3 break-words">{h.remainingPending == null ? '-' : fmt(h.remainingPending)}</td>
                       <td className="px-4 py-3">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const student = h.student || selectedHistoryStudent
-                            if (!student) return
-                            const invoice: Invoice = {
-                              _id: h.invoiceId || '',
-                              invoiceNumber: h.invoiceNumber || undefined,
-                              studentId: {
-                                _id: student._id,
-                                rollNo: student.rollNo,
-                                name: student.name,
-                                mobile: student.mobile,
-                              },
-                              amount: h.invoiceAmount,
-                              paidAmount: h.alreadyPaid + h.amountPaid,
-                              date: h.date,
-                              status: h.remainingPending && h.remainingPending > 0 ? 'partial' : 'paid',
-                            }
-                            const receipt: PaymentReceipt = {
-                              _id: h._id,
-                              date: h.date,
-                              billNo: h.billNo || '',
-                              amountPaid: h.amountPaid,
-                              alreadyPaid: h.alreadyPaid,
-                              remainingPending: h.remainingPending ?? 0,
-                              invoiceId: h.invoiceId || '',
-                              invoiceNumber: h.invoiceNumber || undefined,
-                              paymentMethod: h.paymentMethod || undefined,
-                            }
-                            const studentLabel = `${student.rollNo ? `${student.rollNo} ` : ''}${student.name || 'Student'}`
-                            setViewReceipt({ invoice, receipt, studentLabel })
-                          }}
-                          className="text-slate-600 hover:underline"
-                        >
-                          View Receipt
-                        </button>
+                        <div className="flex flex-wrap gap-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const student = h.student || selectedHistoryStudent
+                              if (!student) return
+                              const invoice: Invoice = {
+                                _id: h.invoiceId || '',
+                                invoiceNumber: h.invoiceNumber || undefined,
+                                studentId: {
+                                  _id: student._id,
+                                  rollNo: student.rollNo,
+                                  name: student.name,
+                                  mobile: student.mobile,
+                                },
+                                amount: h.invoiceAmount,
+                                paidAmount: h.alreadyPaid + h.amountPaid,
+                                date: h.date,
+                                status: h.remainingPending && h.remainingPending > 0 ? 'partial' : 'paid',
+                              }
+                              const receipt: PaymentReceipt = {
+                                _id: h._id,
+                                date: h.date,
+                                billNo: h.billNo || '',
+                                amountPaid: h.amountPaid,
+                                alreadyPaid: h.alreadyPaid,
+                                remainingPending: h.remainingPending ?? 0,
+                                invoiceId: h.invoiceId || '',
+                                invoiceNumber: h.invoiceNumber || undefined,
+                                paymentMethod: h.paymentMethod || undefined,
+                              }
+                              const studentLabel = `${student.rollNo ? `${student.rollNo} ` : ''}${student.name || 'Student'}`
+                              setViewReceipt({ invoice, receipt, studentLabel })
+                            }}
+                            className="text-slate-600 hover:underline"
+                          >
+                            Receipt
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openEditPayment(h)}
+                            className="text-blue-700 hover:underline"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            disabled={deletingPaymentId === h._id}
+                            onClick={() => removePayment(h)}
+                            className="text-red-700 hover:underline disabled:opacity-50"
+                          >
+                            {deletingPaymentId === h._id ? 'Deleting...' : 'Delete'}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -815,6 +1067,15 @@ export default function Invoices() {
                   <div className="flex flex-wrap gap-3 mt-3 text-sm">
                     <button type="button" onClick={() => openBill(inv)} className="text-slate-700 underline">View</button>
                     <button type="button" onClick={() => openPdf(inv)} className="text-slate-700 underline">PDF</button>
+                    <button
+                      type="button"
+                      disabled={deletingId === inv._id}
+                      onClick={() => removeInvoice(inv)}
+                      className="text-red-700 underline disabled:opacity-50"
+                      title="Delete invoice"
+                    >
+                      {deletingId === inv._id ? 'Deleting...' : 'Delete'}
+                    </button>
                     {p > 0 && (
                       <button
                         type="button"
@@ -878,6 +1139,15 @@ export default function Invoices() {
                       <button type="button" onClick={() => openPdf(inv)} disabled={pdfLoading === inv._id} className="text-slate-600 hover:underline disabled:opacity-50">
                         {pdfLoading === inv._id ? '...' : 'PDF'}
                       </button>
+                      <button
+                        type="button"
+                        disabled={deletingId === inv._id}
+                        onClick={() => removeInvoice(inv)}
+                        className="text-red-700 hover:underline disabled:opacity-50"
+                        title="Delete invoice"
+                      >
+                        {deletingId === inv._id ? 'Deleting...' : 'Delete'}
+                      </button>
                       {p > 0 && (
                         <>
                           <button
@@ -886,7 +1156,7 @@ export default function Invoices() {
                               setCollectTarget(inv)
                               setCollectAmount(String(pending(inv)))
                               setCollectMethod('')
-                              setCollectDate('')
+                              setCollectDate(todayISO())
                             }}
                             className="text-green-700 hover:underline"
                           >
