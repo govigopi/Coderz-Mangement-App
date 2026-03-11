@@ -149,7 +149,7 @@ export default function StaffManagement() {
           <button
             type="submit"
             disabled={saving}
-            className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50"
           >
             {saving ? (editingId ? 'Updating...' : 'Creating...') : (editingId ? 'Update User' : 'Create User')}
           </button>
@@ -157,7 +157,7 @@ export default function StaffManagement() {
             <button
               type="button"
               onClick={resetForm}
-              className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-100"
+              className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-100"
             >
               Cancel
             </button>
@@ -189,16 +189,22 @@ export default function StaffManagement() {
                       <button
                         type="button"
                         onClick={() => startEdit(s)}
-                        className="px-2 py-1 border border-slate-300 rounded text-sm hover:bg-slate-100"
+                        className="inline-flex items-center gap-1 px-2 py-1 border border-slate-300 rounded text-sm hover:bg-slate-100"
                       >
                         Edit
                       </button>
                       <button
                         type="button"
                         onClick={() => removeStaff(s)}
-                        className="px-2 py-1 border border-red-200 text-red-600 rounded text-sm hover:bg-red-50"
+                        title="Delete"
+                        aria-label="Delete"
+                        className="inline-flex items-center justify-center w-8 h-8 border border-red-200 text-red-600 rounded text-sm hover:bg-red-50"
                       >
-                        Delete
+                        <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor" aria-hidden="true">
+                          <path d="M6.5 1h3a.5.5 0 0 1 .5.5V2H13a.5.5 0 0 1 0 1h-.538l-.853 10.66A2 2 0 0 1 9.615 15H6.385a2 2 0 0 1-1.994-1.84L3.538 3H3a.5.5 0 0 1 0-1h3V1.5a.5.5 0 0 1 .5-.5" />
+                          <path d="M7 2h2v-.5h-2zM4.537 3l.85 10.63a1 1 0 0 0 .998.87h3.23a1 1 0 0 0 .998-.87L11.463 3z" />
+                          <path d="M6.5 5.5A.5.5 0 0 1 7 6v5a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 0A.5.5 0 0 1 10 6v5a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5" />
+                        </svg>
                       </button>
                     </div>
                   </td>

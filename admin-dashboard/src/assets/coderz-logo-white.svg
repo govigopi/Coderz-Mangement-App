@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="320" viewBox="0 0 1400 320" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Coderz Academy">
-  <g fill="#08224a">
-    <rect x="72" y="72" width="186" height="126" rx="24" fill="none" stroke="#08224a" stroke-width="16"/>
+  <g fill="#ffffff">
+    <rect x="72" y="72" width="186" height="126" rx="24" fill="none" stroke="#ffffff" stroke-width="16"/>
     <path d="M126 212 C108 226, 96 242, 96 258 L234 258 C234 242, 222 226, 204 212 Z"/>
     <path d="M86 270 L244 270 L256 286 L74 286 Z"/>
     <text x="320" y="156" font-family="Montserrat, Arial, sans-serif" font-size="96" font-weight="700" letter-spacing="2">CODERZ ACADEMY</text>

@@ -308,6 +308,7 @@ export interface Enquiry {
   phoneNumber: string
   course: string
   qualification: string
+  description?: string
   status: 'joined' | 'not_joined'
 }
 
@@ -317,6 +318,7 @@ export interface Student {
   name: string
   email?: string
   mobile: string
+  gender?: 'male' | 'female'
   qualification?: string
   dateOfBirth?: string
   mode?: 'online' | 'offline'

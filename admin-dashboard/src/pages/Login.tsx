@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import coderzLogo from '../assets/coderz-logo.svg'
+import coderzLogo from '../assets/coderz-logo-white.svg'
 
 export default function Login() {
   const { user, loading, login } = useAuth()
@@ -38,16 +38,18 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-200">
-      <form onSubmit={handleSubmit} className="w-full max-w-sm bg-white rounded-xl shadow-lg p-8">
-        <img src={coderzLogo} alt="Coderz Academy" className="h-16 w-auto mx-auto mb-3" />
-        <p className="text-slate-500 text-center text-sm mb-6">Sign in to continue</p>
-        {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
+    <div className="h-[100dvh] flex items-center justify-center px-4 py-3 overflow-hidden">
+      <form onSubmit={handleSubmit} className="surface-card fade-in-up w-full max-w-md max-h-[calc(100dvh-1.5rem)] overflow-hidden p-6 md:p-6">
+        <div className="rounded-2xl bg-gradient-to-r from-teal-700 to-cyan-700 px-4 py-4 mb-5 text-white">
+          <img src={coderzLogo} alt="Coderz Academy" className="h-14 w-auto mb-2 mx-auto" />
+          <h1 className="text-xl font-semibold text-center">Sign in to continue</h1>
+        </div>
+        {error && <p className="text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm mb-4">{error}</p>}
         <label className="block text-sm font-medium text-slate-700 mb-1">Role</label>
         <select
           value={role}
           onChange={(e) => setRole(e.target.value as 'superadmin' | 'admin' | 'staff')}
-          className="w-full border border-slate-300 rounded-lg px-3 py-2 mb-4 bg-white"
+          className="w-full px-3 py-2 mb-3 bg-white"
         >
           <option value="superadmin">Superadmin</option>
           <option value="admin">Admin</option>
@@ -60,7 +62,7 @@ export default function Login() {
           onChange={(e) => setEmail(e.target.value)}
           autoComplete="username"
           placeholder="you@example.com"
-          className="w-full border border-slate-300 rounded-lg px-3 py-2 mb-4"
+          className="w-full px-3 py-2 mb-3"
           required
         />
         <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
@@ -70,10 +72,10 @@ export default function Login() {
           onChange={(e) => setPassword(e.target.value)}
           autoComplete="current-password"
           placeholder="Enter password"
-          className="w-full border border-slate-300 rounded-lg px-3 py-2 mb-6"
+          className="w-full px-3 py-2 mb-4"
           required
         />
-        <label className="flex items-center gap-2 text-sm text-slate-700 mb-6">
+        <label className="flex items-center gap-2 text-sm text-slate-700 mb-4">
           <input
             type="checkbox"
             checked={rememberMe}
@@ -84,7 +86,7 @@ export default function Login() {
         <button
           type="submit"
           disabled={submitting}
-          className="w-full bg-slate-800 text-white py-2 rounded-lg font-medium hover:bg-slate-700 disabled:opacity-50"
+          className="w-full bg-gradient-to-r from-teal-700 to-cyan-700 text-white py-2.5 rounded-xl font-medium hover:from-teal-800 hover:to-cyan-800 disabled:opacity-50 shadow-sm"
         >
           {submitting ? 'Signing in...' : 'Sign In'}
         </button>

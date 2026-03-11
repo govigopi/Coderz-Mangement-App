@@ -34,8 +34,12 @@ export default function ToastHost() {
       {toasts.map((t) => (
         <div
           key={t.id}
-          className={`px-4 py-2 rounded-lg shadow text-sm text-white ${
-            t.type === 'success' ? 'bg-green-600' : t.type === 'error' ? 'bg-red-600' : 'bg-slate-700'
+          className={`border px-4 py-2 rounded-lg shadow-[0_14px_30px_rgba(44,62,80,0.14)] text-sm ${
+            t.type === 'success'
+              ? 'border-[#7ec8f4] bg-[#edf7fe] text-[#2c3e50]'
+              : t.type === 'error'
+                ? 'border-[#9cc9e8] bg-[#eef5fa] text-[#2c3e50]'
+                : 'border-[#88c5eb] bg-[#2c3e50] text-white'
           }`}
         >
           {t.message}

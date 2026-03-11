@@ -2,6 +2,7 @@ const express = require('express');
 const Invoice = require('../models/Invoice');
 const Student = require('../models/Student');
 const Income = require('../models/Income');
+const Counter = require('../models/Counter');
 const ExcelJS = require('exceljs');
 const authenticate = require('../middleware/auth');
 const authorizeRoles = require('../middleware/authorizeRoles');
@@ -14,9 +15,71 @@ const generateInvoiceNumber = async () => {
   return `INV-${String(count + 1).padStart(5, '0')}-${Date.now().toString(36).toUpperCase()}`;
 };
 
+const BILL_COUNTER_KEY = 'billNo';
+const BILL_NUMBER_WIDTH = 5;
+const BILL_NUMBER_PATTERN = /^BILL-(\d+)$/i;
+
+const parseBillSequence = (billNo) => {
+  const match = String(billNo || '').trim().match(BILL_NUMBER_PATTERN);
+  return match ? Number(match[1]) : null;
+};
+
+const formatBillNumber = (sequence) => `BILL-${String(sequence).padStart(BILL_NUMBER_WIDTH, '0')}`;
+
+const ensureBillCounter = async () => {
+  let counter = await Counter.findOne({ key: BILL_COUNTER_KEY });
+  if (counter) return counter;
+
+  const sequentialBills = await Income.find({
+    billNo: { $regex: '^BILL-\\d+$', $options: 'i' },
+  }).select('billNo').lean();
+
+  const maxExistingSequence = sequentialBills.reduce((max, entry) => {
+    const sequence = parseBillSequence(entry.billNo);
+    return sequence && sequence > max ? sequence : max;
+  }, 0);
+
+  try {
+    counter = await Counter.create({ key: BILL_COUNTER_KEY, value: maxExistingSequence });
+  } catch (error) {
+    if (error?.code !== 11000) throw error;
+    counter = await Counter.findOne({ key: BILL_COUNTER_KEY });
+  }
+
+  return counter;
+};
+
 const generateBillNumber = async () => {
-  const count = await Income.countDocuments({ source: 'fees' });
-  return `BILL-${String(count + 1).padStart(5, '0')}`;
+  await ensureBillCounter();
+  const counter = await Counter.findOneAndUpdate(
+    { key: BILL_COUNTER_KEY },
+    { $inc: { value: 1 } },
+    { new: true }
+  );
+  return formatBillNumber(counter.value);
+};
+
+const rollbackBillCounter = async (billNumbers) => {
+  const deletedSequences = new Set(
+    (Array.isArray(billNumbers) ? billNumbers : [billNumbers])
+      .map(parseBillSequence)
+      .filter((value) => Number.isInteger(value) && value > 0)
+  );
+
+  if (!deletedSequences.size) return;
+
+  const counter = await Counter.findOne({ key: BILL_COUNTER_KEY });
+  if (!counter) return;
+
+  let nextValue = counter.value;
+  while (deletedSequences.has(nextValue)) {
+    nextValue -= 1;
+  }
+
+  if (nextValue !== counter.value) {
+    counter.value = Math.max(0, nextValue);
+    await counter.save();
+  }
 };
 
 const recomputeInvoiceFromIncome = async (invoiceId) => {
@@ -228,6 +291,16 @@ router.get('/export/excel', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { studentId, amount, description, dueDate } = req.body;
+    const existingInvoice = await Invoice.findOne({ studentId })
+      .populate('studentId', 'rollNo name mobile')
+      .sort({ date: -1, createdAt: -1 });
+    if (existingInvoice) {
+      return res.status(409).json({
+        error: 'An invoice already exists for this student. Update the existing invoice instead of creating another one.',
+        invoice: existingInvoice,
+      });
+    }
+
     const invoiceNumber = await generateInvoiceNumber();
     const invoice = new Invoice({
       studentId,
@@ -350,7 +423,11 @@ router.delete('/:id', async (req, res) => {
     if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
     const studentId = invoice.studentId;
+    const linkedPayments = await Income.find({ invoiceId: invoice._id, source: 'fees' })
+      .select('billNo')
+      .lean();
     await Income.deleteMany({ invoiceId: invoice._id, source: 'fees' });
+    await rollbackBillCounter(linkedPayments.map((payment) => payment.billNo));
     await Invoice.deleteOne({ _id: invoice._id });
     await recomputeStudentTotals(studentId);
     res.json({ message: 'Invoice deleted and linked payments adjusted' });
@@ -413,7 +490,9 @@ router.delete('/payments/:paymentId', async (req, res) => {
 
     const invoiceId = payment.invoiceId;
     const studentId = payment.studentId;
+    const deletedBillNo = payment.billNo;
     await Income.deleteOne({ _id: payment._id });
+    await rollbackBillCounter(deletedBillNo);
 
     await recomputeInvoiceFromIncome(invoiceId);
     await recomputeStudentTotals(studentId);

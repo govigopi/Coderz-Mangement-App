@@ -3,6 +3,7 @@ import { invoicesApi, invoicePdfUrl, downloadWithAuth, saveFileWithAuth, student
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
 import BillView from '../components/BillView'
+import Pagination from '../components/Pagination'
 import PaymentReceiptView from '../components/PaymentReceiptView'
 import { showToast } from '../utils/toast'
 
@@ -64,6 +65,8 @@ export default function Invoices() {
   const [invoiceSearch, setInvoiceSearch] = useState('')
   const [exportingExcel, setExportingExcel] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
+  const [openInvoiceActionsId, setOpenInvoiceActionsId] = useState<string | null>(null)
+  const [openPaymentActionsId, setOpenPaymentActionsId] = useState<string | null>(null)
 
   async function refreshInvoices() {
     try {
@@ -71,6 +74,15 @@ export default function Invoices() {
       setList(r.data)
     } catch {
       setList([])
+    }
+  }
+
+  async function refreshStudents() {
+    try {
+      const r = await studentsApi.list()
+      setStudents(r.data)
+    } catch {
+      setStudents([])
     }
   }
 
@@ -82,7 +94,7 @@ export default function Invoices() {
   }, [filter])
 
   useEffect(() => {
-    studentsApi.list().then((r) => setStudents(r.data)).catch(() => {})
+    refreshStudents()
   }, [])
 
   async function refreshAllPayments() {
@@ -113,6 +125,20 @@ export default function Invoices() {
       .catch(() => setHistory([]))
       .finally(() => setHistoryLoading(false))
   }, [filter, historyStudentId])
+
+  useEffect(() => {
+    if (!openInvoiceActionsId && !openPaymentActionsId) return
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target as HTMLElement | null
+      if (target?.closest('[data-action-menu]')) return
+      setOpenInvoiceActionsId(null)
+      setOpenPaymentActionsId(null)
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => document.removeEventListener('mousedown', handlePointerDown)
+  }, [openInvoiceActionsId, openPaymentActionsId])
 
   const studentLabelFromInvoice = (inv: Invoice) => {
     const student = inv.studentId && typeof inv.studentId === 'object' ? inv.studentId : null
@@ -178,7 +204,7 @@ export default function Invoices() {
       setCollectMethod('')
       setCollectDate(todayISO())
       setCollectTarget(null)
-      refreshAllPayments()
+      await Promise.all([refreshAllPayments(), refreshStudents()])
       showToast({ message: 'Payment recorded', type: 'success' })
     } catch (e) {
       showToast({ message: (e as Error).message, type: 'error' })
@@ -218,6 +244,7 @@ export default function Invoices() {
     try {
       await invoicesApi.delete(inv._id)
       setList((prev) => prev.filter((i) => i._id !== inv._id))
+      await Promise.all([refreshAllPayments(), refreshStudents()])
       if (viewBill?._id === inv._id) setViewBill(null)
       showToast({ message: 'Invoice deleted', type: 'success' })
     } catch (e) {
@@ -253,6 +280,7 @@ export default function Invoices() {
       })
       await Promise.all([
         refreshInvoices(),
+        refreshStudents(),
         refreshAllPayments(),
         invoicesApi.payments(historyStudentId || undefined).then((r) => setHistory(r.data)).catch(() => setHistory([])),
       ])
@@ -272,6 +300,7 @@ export default function Invoices() {
       await invoicesApi.deletePayment(h._id)
       await Promise.all([
         refreshInvoices(),
+        refreshStudents(),
         refreshAllPayments(),
         invoicesApi.payments(historyStudentId || undefined).then((r) => setHistory(r.data)).catch(() => setHistory([])),
       ])
@@ -281,6 +310,38 @@ export default function Invoices() {
     } finally {
       setDeletingPaymentId(null)
     }
+  }
+
+  function viewPaymentReceipt(h: PaymentHistory) {
+    const student = h.student || selectedHistoryStudent
+    if (!student) return
+    const invoice: Invoice = {
+      _id: h.invoiceId || '',
+      invoiceNumber: h.invoiceNumber || undefined,
+      studentId: {
+        _id: student._id,
+        rollNo: student.rollNo,
+        name: student.name,
+        mobile: student.mobile,
+      },
+      amount: h.invoiceAmount,
+      paidAmount: h.alreadyPaid + h.amountPaid,
+      date: h.date,
+      status: h.remainingPending && h.remainingPending > 0 ? 'partial' : 'paid',
+    }
+    const receipt: PaymentReceipt = {
+      _id: h._id,
+      date: h.date,
+      billNo: h.billNo || '',
+      amountPaid: h.amountPaid,
+      alreadyPaid: h.alreadyPaid,
+      remainingPending: h.remainingPending ?? 0,
+      invoiceId: h.invoiceId || '',
+      invoiceNumber: h.invoiceNumber || undefined,
+      paymentMethod: h.paymentMethod || undefined,
+    }
+    const studentLabel = `${student.rollNo ? `${student.rollNo} ` : ''}${student.name || 'Student'}`
+    setViewReceipt({ invoice, receipt, studentLabel })
   }
 
   async function exportElementAsPdf(sourceId: string, fileName: string) {
@@ -442,7 +503,7 @@ export default function Invoices() {
       setViewReceipt({ invoice: paidRes.data.invoice, receipt: paidRes.data.payment, studentLabel })
       setShowGenerator(false)
       setGenForm({ rollNo: '', studentId: '', studentName: '', totalFees: '', alreadyPaid: '', paidFees: '', paymentMethod: '', paymentDate: todayISO() })
-      refreshAllPayments()
+      await Promise.all([refreshAllPayments(), refreshStudents()])
       showToast({ message: 'Receipt generated', type: 'success' })
     } catch (err: unknown) {
       showToast({
@@ -489,30 +550,35 @@ export default function Invoices() {
 
   return (
     <div className="w-full max-w-full overflow-x-hidden">
-      <h1 className="text-2xl font-bold text-slate-800 mb-6">Billing / Invoices</h1>
+      <div className="surface-card p-4 md:p-5 mb-6">
+        <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Finance Operations</p>
+        <h1 className="text-2xl font-bold text-slate-800">Billing / Invoices</h1>
+        <p className="text-sm text-slate-600 mt-1">Track outstanding balances, collect payments, and export billing history.</p>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-        <div className="bg-white rounded-lg border border-slate-200 shadow p-4">
+        <div className="surface-card p-4">
           <p className="text-sm text-slate-500">Total Outstanding</p>
           <p className="text-xl font-semibold text-amber-700">{fmt(totalOutstanding)}</p>
         </div>
-        <div className="bg-white rounded-lg border border-slate-200 shadow p-4">
+        <div className="surface-card p-4">
           <p className="text-sm text-slate-500">Outstanding Invoices</p>
           <p className="text-xl font-semibold text-slate-800">{overdueCount}</p>
         </div>
-        <div className="bg-white rounded-lg border border-slate-200 shadow p-4">
+        <div className="surface-card p-4">
           <p className="text-sm text-slate-500">Collected This Month</p>
           <p className="text-xl font-semibold text-green-700">{fmt(collectedThisMonth)}</p>
         </div>
-        <div className="bg-white rounded-lg border border-slate-200 shadow p-4">
+        <div className="surface-card p-4">
           <p className="text-sm text-slate-500">Collected Today</p>
           <p className="text-xl font-semibold text-green-700">{fmt(collectedToday)}</p>
         </div>
       </div>
-      <div className="bg-white rounded-lg border border-slate-200 shadow p-4 mb-4">
+      <div className="surface-card p-4 mb-4">
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={() => setShowGenerator(true)}
+            data-variant="success"
             className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
           >
             + Generate Bill
@@ -522,7 +588,20 @@ export default function Invoices() {
               <button
                 key={f}
                 onClick={() => setFilter(f)}
-                className={`px-4 py-2 rounded-lg ${filter === f ? 'bg-slate-800 text-white' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`}
+                className={`px-4 py-2 rounded-lg border ${
+                  filter === f
+                    ? 'text-white'
+                    : 'border-slate-300 bg-slate-200 text-slate-700'
+                }`}
+                style={
+                  filter === f
+                    ? f === 'paid'
+                      ? { background: 'linear-gradient(135deg, #1f7a45, #2fb36a)', borderColor: '#1f7a45' }
+                      : f === 'outstanding'
+                        ? { background: 'linear-gradient(135deg, #b7791f, #d69e2e)', borderColor: '#b7791f' }
+                        : { background: 'linear-gradient(135deg, #2c3e50, #3498db)', borderColor: '#2c3e50' }
+                    : undefined
+                }
               >
                 {f === 'outstanding' ? 'Outstanding' : f === 'paid' ? 'Paid' : 'Payment History'}
               </button>
@@ -534,7 +613,7 @@ export default function Invoices() {
             disabled={exportingExcel}
             title={exportingExcel ? 'Exporting...' : 'Export Excel'}
             aria-label={exportingExcel ? 'Exporting Excel' : 'Export Excel'}
-            className="inline-flex items-center justify-center w-10 h-10 rounded-[5px] bg-emerald-700 text-white hover:bg-emerald-600 disabled:opacity-50 ml-auto"
+            className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-emerald-700 text-white hover:bg-emerald-600 disabled:opacity-50 ml-auto"
           >
             {exportingExcel ? (
               <svg viewBox="0 0 24 24" className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -568,9 +647,9 @@ export default function Invoices() {
       </div>
       {showGenerator && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full p-6 max-h-[90vh] overflow-y-auto">
             <h2 className="text-lg font-semibold text-slate-800 mb-4">Generate Payment</h2>
-            <form onSubmit={generateBill} className="space-y-4">
+            <form onSubmit={generateBill} className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Roll No *</label>
                 <input
@@ -616,7 +695,7 @@ export default function Invoices() {
                   readOnly
                   tabIndex={-1}
                   onFocus={(e) => e.currentTarget.blur()}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-slate-50 cursor-default caret-transparent"
+                  className="no-spinner w-full border border-slate-300 rounded-lg px-3 py-2 bg-slate-50 cursor-default caret-transparent"
                 />
               </div>
               <div>
@@ -626,7 +705,8 @@ export default function Invoices() {
                   min={1}
                   value={genForm.paidFees}
                   onChange={(e) => setGenForm((f) => ({ ...f, paidFees: e.target.value }))}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                  onWheel={(e) => e.currentTarget.blur()}
+                  className="no-spinner w-full border border-slate-300 rounded-lg px-3 py-2"
                 />
               </div>
               <div>
@@ -656,15 +736,15 @@ export default function Invoices() {
                   value={pendingFees}
                   tabIndex={-1}
                   onFocus={(e) => e.currentTarget.blur()}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-slate-50 cursor-default caret-transparent"
+                  className="no-spinner w-full border border-slate-300 rounded-lg px-3 py-2 bg-slate-50 cursor-default caret-transparent"
                 />
               </div>
-              <div className="flex gap-2 pt-2 sticky bottom-0 bg-white pb-2 -mx-6 px-6 border-t border-slate-200">
-                <button type="submit" disabled={genSaving} className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50">
-                  {genSaving ? 'Creating...' : 'Generate Receipt'}
-                </button>
+              <div className="md:col-span-2 flex justify-end gap-2 pt-2 sticky bottom-0 bg-white pb-2 -mx-6 px-6 border-t border-slate-200">
                 <button type="button" onClick={() => setShowGenerator(false)} className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-100">
                   Cancel
+                </button>
+                <button type="submit" disabled={genSaving} className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50">
+                  {genSaving ? 'Creating...' : 'Generate Receipt'}
                 </button>
               </div>
             </form>
@@ -691,8 +771,9 @@ export default function Invoices() {
                 type="number"
                 value={collectAmount}
                 onChange={(e) => setCollectAmount(e.target.value)}
+                onWheel={(e) => e.currentTarget.blur()}
                 placeholder="Amount"
-                className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                className="no-spinner w-full border border-slate-300 rounded-lg px-3 py-2"
               />
               <input
                 type="text"
@@ -708,7 +789,14 @@ export default function Invoices() {
                 className="w-full border border-slate-300 rounded-lg px-3 py-2"
               />
             </div>
-            <div className="flex gap-2 mt-5">
+            <div className="flex justify-end gap-2 mt-5">
+              <button
+                type="button"
+                onClick={() => setCollectTarget(null)}
+                className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-100"
+              >
+                Cancel
+              </button>
               <button
                 type="button"
                 disabled={collectSaving}
@@ -717,19 +805,12 @@ export default function Invoices() {
               >
                 {collectSaving ? 'Saving...' : 'Confirm Payment'}
               </button>
-              <button
-                type="button"
-                onClick={() => setCollectTarget(null)}
-                className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-100"
-              >
-                Cancel
-              </button>
             </div>
           </div>
         </div>
       )}
       {viewBill && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-auto print:bg-white print:block">
+        <div className="fixed inset-0 bg-black/50 flex items-start justify-center z-50 p-4 overflow-auto sm:items-center print:bg-white print:block">
           <div onClick={() => setViewBill(null)} className="absolute inset-0 no-print" aria-hidden />
           <div onClick={(e) => e.stopPropagation()} className="relative print:block">
             <BillView
@@ -819,7 +900,7 @@ export default function Invoices() {
       )}
       {filter === 'payment_history' ? (
         <div>
-          <div className="bg-white rounded-lg border border-slate-200 shadow p-4 mb-4 max-w-md">
+          <div className="surface-card p-4 mb-4 max-w-md">
             <label className="block text-sm font-medium text-slate-700 mb-1">Roll No (Optional)</label>
             <input
               type="text"
@@ -837,7 +918,7 @@ export default function Invoices() {
           ) : history.length === 0 ? (
             <p className="text-slate-500">No payments found.</p>
           ) : (
-            <div className="bg-white rounded-lg shadow overflow-hidden border border-slate-200">
+            <div className="surface-card overflow-hidden">
               <div className="md:hidden p-3 space-y-3">
                 {pagedHistory.map((h) => (
                   <div key={h._id} className="border border-slate-200 rounded-lg p-3">
@@ -912,94 +993,115 @@ export default function Invoices() {
                       </button>
                       <button
                         type="button"
+                        title="Delete"
+                        aria-label="Delete"
                         disabled={deletingPaymentId === h._id}
                         onClick={() => removePayment(h)}
-                        className="text-red-700 underline disabled:opacity-50"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
                       >
-                        {deletingPaymentId === h._id ? 'Deleting...' : 'Delete'}
+                        {deletingPaymentId === h._id ? '...' : (
+                          <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor" aria-hidden="true">
+                            <path d="M6.5 1h3a.5.5 0 0 1 .5.5V2H13a.5.5 0 0 1 0 1h-.538l-.853 10.66A2 2 0 0 1 9.615 15H6.385a2 2 0 0 1-1.994-1.84L3.538 3H3a.5.5 0 0 1 0-1h3V1.5a.5.5 0 0 1 .5-.5" />
+                            <path d="M7 2h2v-.5h-2zM4.537 3l.85 10.63a1 1 0 0 0 .998.87h3.23a1 1 0 0 0 .998-.87L11.463 3z" />
+                            <path d="M6.5 5.5A.5.5 0 0 1 7 6v5a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 0A.5.5 0 0 1 10 6v5a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5" />
+                          </svg>
+                        )}
                       </button>
                     </div>
                   </div>
                 ))}
               </div>
-              <div className="hidden md:block overflow-x-auto">
+              <div className="hidden md:block">
               <table className="w-full table-fixed">
                 <thead className="bg-slate-100 text-left text-sm text-slate-600">
                   <tr>
-                    <th className="px-4 py-3">Date</th>
-                    <th className="px-4 py-3">Student</th>
-                    <th className="px-4 py-3">Bill</th>
-                    <th className="px-4 py-3">Amount Paid</th>
-                    <th className="px-4 py-3">Invoice</th>
-                    <th className="px-4 py-3">Payment Method</th>
-                    <th className="px-4 py-3">Remaining Pending</th>
-                    <th className="px-4 py-3">Actions</th>
+                    <th className="px-3 py-2.5 w-[11%]">Date</th>
+                    <th className="px-3 py-2.5 w-[18%]">Student</th>
+                    <th className="px-3 py-2.5 w-[12%]">Bill</th>
+                    <th className="px-3 py-2.5 w-[12%]">Amount Paid</th>
+                    <th className="px-3 py-2.5 w-[13%]">Invoice</th>
+                    <th className="px-3 py-2.5 w-[13%]">Payment Method</th>
+                    <th className="px-3 py-2.5 w-[13%]">Remaining</th>
+                    <th className="px-3 py-2.5 w-[8%]">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pagedHistory.map((h) => (
                     <tr key={h._id} className="border-t border-slate-200 hover:bg-slate-50">
-                      <td className="px-4 py-3 break-words">{new Date(h.date).toLocaleDateString()}</td>
-                      <td className="px-4 py-3 break-words">{`${h.student?.rollNo ? `${h.student.rollNo} ` : ''}${h.student?.name || '-'}`}</td>
-                      <td className="px-4 py-3">{h.billNo || '-'}</td>
-                      <td className="px-4 py-3 break-words">{fmt(h.amountPaid)}</td>
-                      <td className="px-4 py-3 break-words">{h.invoiceNumber || '-'}</td>
-                      <td className="px-4 py-3 break-words">{h.paymentMethod || '-'}</td>
-                      <td className="px-4 py-3 break-words">{h.remainingPending == null ? '-' : fmt(h.remainingPending)}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-3">
+                      <td className="px-3 py-2.5 break-words text-sm">{new Date(h.date).toLocaleDateString()}</td>
+                      <td className="px-3 py-2.5 break-words text-sm">{`${h.student?.rollNo ? `${h.student.rollNo} ` : ''}${h.student?.name || '-'}`}</td>
+                      <td className="px-3 py-2.5 break-words text-sm">{h.billNo || '-'}</td>
+                      <td className="px-3 py-2.5 break-words text-sm">{fmt(h.amountPaid)}</td>
+                      <td className="px-3 py-2.5 break-words text-sm">{h.invoiceNumber || '-'}</td>
+                      <td className="px-3 py-2.5 break-words text-sm">{h.paymentMethod || '-'}</td>
+                      <td className="px-3 py-2.5 break-words text-sm">{h.remainingPending == null ? '-' : fmt(h.remainingPending)}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        <div className="relative inline-block" data-action-menu>
                           <button
                             type="button"
-                            onClick={() => {
-                              const student = h.student || selectedHistoryStudent
-                              if (!student) return
-                              const invoice: Invoice = {
-                                _id: h.invoiceId || '',
-                                invoiceNumber: h.invoiceNumber || undefined,
-                                studentId: {
-                                  _id: student._id,
-                                  rollNo: student.rollNo,
-                                  name: student.name,
-                                  mobile: student.mobile,
-                                },
-                                amount: h.invoiceAmount,
-                                paidAmount: h.alreadyPaid + h.amountPaid,
-                                date: h.date,
-                                status: h.remainingPending && h.remainingPending > 0 ? 'partial' : 'paid',
-                              }
-                              const receipt: PaymentReceipt = {
-                                _id: h._id,
-                                date: h.date,
-                                billNo: h.billNo || '',
-                                amountPaid: h.amountPaid,
-                                alreadyPaid: h.alreadyPaid,
-                                remainingPending: h.remainingPending ?? 0,
-                                invoiceId: h.invoiceId || '',
-                                invoiceNumber: h.invoiceNumber || undefined,
-                                paymentMethod: h.paymentMethod || undefined,
-                              }
-                              const studentLabel = `${student.rollNo ? `${student.rollNo} ` : ''}${student.name || 'Student'}`
-                              setViewReceipt({ invoice, receipt, studentLabel })
-                            }}
-                            className="text-slate-600 hover:underline"
+                            title="Actions"
+                            aria-label="Actions"
+                            onClick={() => setOpenPaymentActionsId((prev) => (prev === h._id ? null : h._id))}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 text-slate-700 hover:bg-slate-100"
                           >
-                            Receipt
+                            <span className="text-base leading-none">...</span>
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => openEditPayment(h)}
-                            className="text-blue-700 hover:underline"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            disabled={deletingPaymentId === h._id}
-                            onClick={() => removePayment(h)}
-                            className="text-red-700 hover:underline disabled:opacity-50"
-                          >
-                            {deletingPaymentId === h._id ? 'Deleting...' : 'Delete'}
-                          </button>
+                          {openPaymentActionsId === h._id && (
+                            <div className="absolute right-0 top-10 z-20 inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
+                              <button
+                                type="button"
+                                title="Receipt"
+                                aria-label="Receipt"
+                                onClick={() => {
+                                  setOpenPaymentActionsId(null)
+                                  viewPaymentReceipt(h)
+                                }}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-100"
+                              >
+                                <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                                  <path d="M4 1.5 5 2.5 6 1.5 7 2.5 8 1.5 9 2.5 10 1.5 11 2.5 12 1.5v13l-1-1-1 1-1-1-1 1-1-1-1 1-1-1-1 1v-13Z" />
+                                  <path d="M5.5 5h5" strokeLinecap="round" />
+                                  <path d="M5.5 7.5h5" strokeLinecap="round" />
+                                  <path d="M5.5 10h3.5" strokeLinecap="round" />
+                                </svg>
+                              </button>
+                              <button
+                                type="button"
+                                title="Edit"
+                                aria-label="Edit"
+                                onClick={() => {
+                                  setOpenPaymentActionsId(null)
+                                  openEditPayment(h)
+                                }}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-200 text-blue-700 hover:bg-blue-50"
+                              >
+                                <svg viewBox="0 0 16 16" className="h-4 w-4" fill="currentColor" aria-hidden="true">
+                                  <path d="M11.013 1.427a1.75 1.75 0 0 1 2.475 2.475l-7.19 7.19a2 2 0 0 1-.878.497l-2.12.606a.5.5 0 0 1-.618-.618l.606-2.12a2 2 0 0 1 .497-.878z" />
+                                  <path d="M10.308 2.132 12.783 4.607" />
+                                  <path d="M2.5 13.5h11" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                                </svg>
+                              </button>
+                              <button
+                                type="button"
+                                title="Delete"
+                                aria-label="Delete"
+                                disabled={deletingPaymentId === h._id}
+                                onClick={() => {
+                                  setOpenPaymentActionsId(null)
+                                  removePayment(h)
+                                }}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                              >
+                                {deletingPaymentId === h._id ? '...' : (
+                                  <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor" aria-hidden="true">
+                                    <path d="M6.5 1h3a.5.5 0 0 1 .5.5V2H13a.5.5 0 0 1 0 1h-.538l-.853 10.66A2 2 0 0 1 9.615 15H6.385a2 2 0 0 1-1.994-1.84L3.538 3H3a.5.5 0 0 1 0-1h3V1.5a.5.5 0 0 1 .5-.5" />
+                                    <path d="M7 2h2v-.5h-2zM4.537 3l.85 10.63a1 1 0 0 0 .998.87h3.23a1 1 0 0 0 .998-.87L11.463 3z" />
+                                    <path d="M6.5 5.5A.5.5 0 0 1 7 6v5a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 0A.5.5 0 0 1 10 6v5a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5" />
+                                  </svg>
+                                )}
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1012,25 +1114,7 @@ export default function Invoices() {
                   <p className="text-sm text-slate-600">
                     Showing {historyStart + 1}-{Math.min(historyStart + PAGE_SIZE, history.length)} of {history.length}
                   </p>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={historySafePage === 1}
-                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                      className="px-3 py-1.5 text-sm border border-slate-300 rounded-md hover:bg-slate-100 disabled:opacity-50"
-                    >
-                      Prev
-                    </button>
-                    <span className="text-sm text-slate-700">Page {historySafePage} / {historyTotalPages}</span>
-                    <button
-                      type="button"
-                      disabled={historySafePage === historyTotalPages}
-                      onClick={() => setCurrentPage((p) => Math.min(historyTotalPages, p + 1))}
-                      className="px-3 py-1.5 text-sm border border-slate-300 rounded-md hover:bg-slate-100 disabled:opacity-50"
-                    >
-                      Next
-                    </button>
-                  </div>
+                  <Pagination currentPage={historySafePage} totalPages={historyTotalPages} onPageChange={setCurrentPage} />
                 </div>
               )}
             </div>
@@ -1039,7 +1123,7 @@ export default function Invoices() {
       ) : loading ? (
         <p>Loading...</p>
       ) : (
-        <div className="bg-white rounded-lg shadow overflow-hidden border border-slate-200">
+        <div className="surface-card overflow-hidden">
           <div className="md:hidden p-3 space-y-3">
             {pagedInvoices.map((inv) => {
               const p = pending(inv)
@@ -1065,29 +1149,55 @@ export default function Invoices() {
                     <div><p className="text-slate-500">Pending</p><p className="font-medium text-amber-700">{fmt(p)}</p></div>
                   </div>
                   <div className="flex flex-wrap gap-3 mt-3 text-sm">
-                    <button type="button" onClick={() => openBill(inv)} className="text-slate-700 underline">View</button>
-                    <button type="button" onClick={() => openPdf(inv)} className="text-slate-700 underline">PDF</button>
+                    <button type="button" title="View Bill" aria-label="View Bill" onClick={() => openBill(inv)} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 text-slate-700 hover:bg-slate-100">
+                      <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                        <path d="M4 1.5 5 2.5 6 1.5 7 2.5 8 1.5 9 2.5 10 1.5 11 2.5 12 1.5v13l-1-1-1 1-1-1-1 1-1-1-1 1-1-1-1 1v-13Z" />
+                        <path d="M5.5 5h5" strokeLinecap="round" />
+                        <path d="M5.5 7.5h5" strokeLinecap="round" />
+                        <path d="M5.5 10h3.5" strokeLinecap="round" />
+                      </svg>
+                    </button>
+                    <button type="button" title="View PDF" aria-label="View PDF" onClick={() => openPdf(inv)} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 text-slate-700 hover:bg-slate-100">
+                      <svg viewBox="0 0 16 16" className="h-4 w-4" fill="currentColor" aria-hidden="true">
+                        <path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5zM9.5 3A1.5 1.5 0 0 0 11 4.5h2L9.5 1z" />
+                        <path d="M4.603 12.087a.81.81 0 0 1-.081.4.56.56 0 0 1-.26.235 1.25 1.25 0 0 1-.42.105 5 5 0 0 1-.55.024H2v-3.5h1.152q.418 0 .696.07a1 1 0 0 1 .444.22.9.9 0 0 1 .249.376.13 0 0 1 .03.13.8.8 0 0 1 .032.23.94.94 0 0 1-.09.427.9.9 0 0 1-.266.304.95.95 0 0 1-.406.171 3 3 0 0 1-.533.038H2.54v.84h.663q.551 0 .83-.164.28-.164.28-.567m2.876.581q0 .46-.18.748a1.1 1.1 0 0 1-.531.44 2.5 2.5 0 0 1-.886.14H4.993v-3.5h.9q.405 0 .74.09.335.09.57.27.234.18.36.455.126.273.126.658 0 .39-.18.67m-.824-.02q0-.306-.09-.512a.75.75 0 0 0-.258-.33 1.1 1.1 0 0 0-.412-.177 2 2 0 0 0-.552-.06h-.284v2.165h.24q.26 0 .456-.055.194-.056.334-.175a.8.8 0 0 0 .22-.34q.08-.22.08-.516m3.82-1.517q0 .246-.07.43a.7.7 0 0 1-.206.3.9.9 0 0 1-.347.173 2 2 0 0 1-.5.057H8.78v1.914h-.844v-3.5h2.186v.714H8.78v.8h.573q.287 0 .43.127.143.127.143.485" />
+                      </svg>
+                    </button>
                     <button
                       type="button"
+                      title="Delete invoice"
+                      aria-label="Delete invoice"
                       disabled={deletingId === inv._id}
                       onClick={() => removeInvoice(inv)}
-                      className="text-red-700 underline disabled:opacity-50"
-                      title="Delete invoice"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
                     >
-                      {deletingId === inv._id ? 'Deleting...' : 'Delete'}
+                      {deletingId === inv._id ? '...' : (
+                        <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor" aria-hidden="true">
+                          <path d="M6.5 1h3a.5.5 0 0 1 .5.5V2H13a.5.5 0 0 1 0 1h-.538l-.853 10.66A2 2 0 0 1 9.615 15H6.385a2 2 0 0 1-1.994-1.84L3.538 3H3a.5.5 0 0 1 0-1h3V1.5a.5.5 0 0 1 .5-.5" />
+                          <path d="M7 2h2v-.5h-2zM4.537 3l.85 10.63a1 1 0 0 0 .998.87h3.23a1 1 0 0 0 .998-.87L11.463 3z" />
+                          <path d="M6.5 5.5A.5.5 0 0 1 7 6v5a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 0A.5.5 0 0 1 10 6v5a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5" />
+                        </svg>
+                      )}
                     </button>
                     {p > 0 && (
                       <button
                         type="button"
+                        title="Collect"
+                        aria-label="Collect"
                         onClick={() => {
                           setCollectTarget(inv)
                           setCollectAmount(String(pending(inv)))
                           setCollectMethod('')
                           setCollectDate(todayISO())
                         }}
-                        className="text-green-700 underline"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 text-green-700 hover:bg-slate-100"
                       >
-                        Collect
+                        <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor" aria-hidden="true">
+                          <path d="M11 15a4 4 0 1 0 0-8 4 4 0 0 0 0 8" />
+                          <path d="M0 4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2.08a5 5 0 0 0-1-.08H2a1 1 0 0 0-1 1v5.08A2 2 0 0 1 0 10z" />
+                          <path d="M11 8a3 3 0 1 1 0 6 3 3 0 0 1 0-6" fill="#fff" opacity=".3" />
+                          <path d="M10.5 10.5v-1h1v1h1v1h-1v1h-1v-1h-1v-1z" fill="#fff" />
+                        </svg>
                       </button>
                     )}
                   </div>
@@ -1095,18 +1205,18 @@ export default function Invoices() {
               )
             })}
           </div>
-          <div className="hidden md:block overflow-x-auto">
+          <div className="hidden md:block">
           <table className="w-full table-fixed">
             <thead className="bg-slate-100 text-left text-sm text-slate-600">
               <tr>
-                <th className="px-4 py-3">Invoice</th>
-                <th className="px-4 py-3">Student</th>
-                <th className="px-4 py-3">Date</th>
-                <th className="px-4 py-3">Amount</th>
-                <th className="px-4 py-3">Paid</th>
-                <th className="px-4 py-3">Pending</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Actions</th>
+                <th className="px-3 py-2.5 w-[16%]">Invoice</th>
+                <th className="px-3 py-2.5 w-[20%]">Student</th>
+                <th className="px-3 py-2.5 w-[12%]">Date</th>
+                <th className="px-3 py-2.5 w-[12%]">Amount</th>
+                <th className="px-3 py-2.5 w-[12%]">Paid</th>
+                <th className="px-3 py-2.5 w-[12%]">Pending</th>
+                <th className="px-3 py-2.5 w-[8%]">Status</th>
+                <th className="px-3 py-2.5 w-[8%]">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1114,13 +1224,13 @@ export default function Invoices() {
                 const p = pending(inv)
                 return (
                   <tr key={inv._id} className="border-t border-slate-200 hover:bg-slate-50">
-                    <td className="px-4 py-3 font-medium break-words">{inv.invoiceNumber || inv._id.slice(-6)}</td>
-                    <td className="px-4 py-3 break-words">{studentLabelFromInvoice(inv)}</td>
-                    <td className="px-4 py-3 break-words">{new Date(inv.date).toLocaleDateString()}</td>
-                    <td className="px-4 py-3 break-words">{fmt(inv.amount)}</td>
-                    <td className="px-4 py-3 break-words">{fmt(inv.paidAmount)}</td>
-                    <td className="px-4 py-3 break-words">{p > 0 ? <span className="text-amber-600">{fmt(p)}</span> : fmt(0)}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2.5 font-medium break-words text-sm">{inv.invoiceNumber || inv._id.slice(-6)}</td>
+                    <td className="px-3 py-2.5 break-words text-sm">{studentLabelFromInvoice(inv)}</td>
+                    <td className="px-3 py-2.5 break-words text-sm">{new Date(inv.date).toLocaleDateString()}</td>
+                    <td className="px-3 py-2.5 break-words text-sm">{fmt(inv.amount)}</td>
+                    <td className="px-3 py-2.5 break-words text-sm">{fmt(inv.paidAmount)}</td>
+                    <td className="px-3 py-2.5 break-words text-sm">{p > 0 ? <span className="text-amber-600">{fmt(p)}</span> : fmt(0)}</td>
+                    <td className="px-3 py-2.5">
                       <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
                         inv.status === 'paid'
                           ? 'bg-green-100 text-green-700'
@@ -1131,39 +1241,75 @@ export default function Invoices() {
                         {inv.status === 'paid' ? 'Paid' : inv.status === 'partial' ? 'Partial' : 'Pending'}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-col items-stretch gap-2 lg:flex-row lg:flex-wrap lg:items-center">
-                      <button type="button" onClick={() => openBill(inv)} className="text-slate-600 hover:underline">
-                        View Bill
-                      </button>
-                      <button type="button" onClick={() => openPdf(inv)} disabled={pdfLoading === inv._id} className="text-slate-600 hover:underline disabled:opacity-50">
-                        {pdfLoading === inv._id ? '...' : 'PDF'}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={deletingId === inv._id}
-                        onClick={() => removeInvoice(inv)}
-                        className="text-red-700 hover:underline disabled:opacity-50"
-                        title="Delete invoice"
-                      >
-                        {deletingId === inv._id ? 'Deleting...' : 'Delete'}
-                      </button>
-                      {p > 0 && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setCollectTarget(inv)
-                              setCollectAmount(String(pending(inv)))
-                              setCollectMethod('')
-                              setCollectDate(todayISO())
-                            }}
-                            className="text-green-700 hover:underline"
-                          >
-                            Collect
-                          </button>
-                        </>
-                      )}
+                    <td className="px-3 py-2.5 whitespace-nowrap">
+                      <div className="relative inline-block" data-action-menu>
+                        <button
+                          type="button"
+                          title="Actions"
+                          aria-label="Actions"
+                          onClick={() => setOpenInvoiceActionsId((prev) => (prev === inv._id ? null : inv._id))}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 text-slate-700 hover:bg-slate-100"
+                        >
+                          <span className="text-base leading-none">...</span>
+                        </button>
+                        {openInvoiceActionsId === inv._id && (
+                          <div className="absolute right-0 top-10 z-20 inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
+                            <button type="button" title="View Bill" aria-label="View Bill" onClick={() => { setOpenInvoiceActionsId(null); openBill(inv) }} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-100">
+                              <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                                <path d="M4 1.5 5 2.5 6 1.5 7 2.5 8 1.5 9 2.5 10 1.5 11 2.5 12 1.5v13l-1-1-1 1-1-1-1 1-1-1-1 1-1-1-1 1v-13Z" />
+                                <path d="M5.5 5h5" strokeLinecap="round" />
+                                <path d="M5.5 7.5h5" strokeLinecap="round" />
+                                <path d="M5.5 10h3.5" strokeLinecap="round" />
+                              </svg>
+                            </button>
+                            <button type="button" title="View PDF" aria-label="View PDF" onClick={() => { setOpenInvoiceActionsId(null); openPdf(inv) }} disabled={pdfLoading === inv._id} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-100 disabled:opacity-50">
+                              {pdfLoading === inv._id ? '...' : (
+                                <svg viewBox="0 0 16 16" className="h-4 w-4" fill="currentColor" aria-hidden="true">
+                                  <path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5zM9.5 3A1.5 1.5 0 0 0 11 4.5h2L9.5 1z" />
+                                  <path d="M4.603 12.087a.81.81 0 0 1-.081.4.56.56 0 0 1-.26.235 1.25 1.25 0 0 1-.42.105 5 5 0 0 1-.55.024H2v-3.5h1.152q.418 0 .696.07a1 1 0 0 1 .444.22.9.9 0 0 1 .249.376.13 0 0 1 .03.13.8.8 0 0 1 .032.23.94.94 0 0 1-.09.427.9.9 0 0 1-.266.304.95.95 0 0 1-.406.171 3 3 0 0 1-.533.038H2.54v.84h.663q.551 0 .83-.164.28-.164.28-.567m2.876.581q0 .46-.18.748a1.1 1.1 0 0 1-.531.44 2.5 2.5 0 0 1-.886.14H4.993v-3.5h.9q.405 0 .74.09.335.09.57.27.234.18.36.455.126.273.126.658 0 .39-.18.67m-.824-.02q0-.306-.09-.512a.75.75 0 0 0-.258-.33 1.1 1.1 0 0 0-.412-.177 2 2 0 0 0-.552-.06h-.284v2.165h.24q.26 0 .456-.055.194-.056.334-.175a.8.8 0 0 0 .22-.34q.08-.22.08-.516m3.82-1.517q0 .246-.07.43a.7.7 0 0 1-.206.3.9.9 0 0 1-.347.173 2 2 0 0 1-.5.057H8.78v1.914h-.844v-3.5h2.186v.714H8.78v.8h.573q.287 0 .43.127.143.127.143.485" />
+                                </svg>
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              title="Delete invoice"
+                              aria-label="Delete invoice"
+                              disabled={deletingId === inv._id}
+                              onClick={() => { setOpenInvoiceActionsId(null); removeInvoice(inv) }}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                            >
+                              {deletingId === inv._id ? '...' : (
+                                <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor" aria-hidden="true">
+                                  <path d="M6.5 1h3a.5.5 0 0 1 .5.5V2H13a.5.5 0 0 1 0 1h-.538l-.853 10.66A2 2 0 0 1 9.615 15H6.385a2 2 0 0 1-1.994-1.84L3.538 3H3a.5.5 0 0 1 0-1h3V1.5a.5.5 0 0 1 .5-.5" />
+                                  <path d="M7 2h2v-.5h-2zM4.537 3l.85 10.63a1 1 0 0 0 .998.87h3.23a1 1 0 0 0 .998-.87L11.463 3z" />
+                                  <path d="M6.5 5.5A.5.5 0 0 1 7 6v5a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 0A.5.5 0 0 1 10 6v5a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5" />
+                                </svg>
+                              )}
+                            </button>
+                            {p > 0 && (
+                              <button
+                                type="button"
+                                title="Collect"
+                                aria-label="Collect"
+                                onClick={() => {
+                                  setOpenInvoiceActionsId(null)
+                                  setCollectTarget(inv)
+                                  setCollectAmount(String(pending(inv)))
+                                  setCollectMethod('')
+                                  setCollectDate(todayISO())
+                                }}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 text-green-700 hover:bg-slate-100"
+                              >
+                                <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor" aria-hidden="true">
+                                  <path d="M11 15a4 4 0 1 0 0-8 4 4 0 0 0 0 8" />
+                                  <path d="M0 4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2.08a5 5 0 0 0-1-.08H2a1 1 0 0 0-1 1v5.08A2 2 0 0 1 0 10z" />
+                                  <path d="M11 8a3 3 0 1 1 0 6 3 3 0 0 1 0-6" fill="#fff" opacity=".3" />
+                                  <path d="M10.5 10.5v-1h1v1h1v1h-1v1h-1v-1h-1v-1z" fill="#fff" />
+                                </svg>
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1178,25 +1324,7 @@ export default function Invoices() {
               <p className="text-sm text-slate-600">
                 Showing {invoiceStart + 1}-{Math.min(invoiceStart + PAGE_SIZE, filteredInvoices.length)} of {filteredInvoices.length}
               </p>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={invoiceSafePage === 1}
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  className="px-3 py-1.5 text-sm border border-slate-300 rounded-md hover:bg-slate-100 disabled:opacity-50"
-                >
-                  Prev
-                </button>
-                <span className="text-sm text-slate-700">Page {invoiceSafePage} / {invoiceTotalPages}</span>
-                <button
-                  type="button"
-                  disabled={invoiceSafePage === invoiceTotalPages}
-                  onClick={() => setCurrentPage((p) => Math.min(invoiceTotalPages, p + 1))}
-                  className="px-3 py-1.5 text-sm border border-slate-300 rounded-md hover:bg-slate-100 disabled:opacity-50"
-                >
-                  Next
-                </button>
-              </div>
+              <Pagination currentPage={invoiceSafePage} totalPages={invoiceTotalPages} onPageChange={setCurrentPage} />
             </div>
           )}
         </div>
@@ -1204,3 +1332,4 @@ export default function Invoices() {
     </div>
   )
 }
+

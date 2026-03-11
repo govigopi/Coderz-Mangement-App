@@ -5,6 +5,7 @@ const enquirySchema = new mongoose.Schema({
   phoneNumber: { type: String, required: true, trim: true },
   course: { type: String, required: true, trim: true },
   qualification: { type: String, required: true, trim: true },
+  description: { type: String, trim: true, default: '' },
   status: { type: String, enum: ['joined', 'not_joined'], default: 'not_joined' },
 }, { timestamps: true });
 

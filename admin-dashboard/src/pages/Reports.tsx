@@ -1,14 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   reportsApi,
-  incomeExpenseExcelUrl,
-  downloadWithAuth,
   coursesApi,
-  type IncomeExpenseSummary,
   type BusinessSummary,
   type Course,
 } from '../api/client'
-import { showToast } from '../utils/toast'
 
 function fmt(n: number) {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n)
@@ -22,23 +18,13 @@ export default function Reports() {
   const [businessData, setBusinessData] = useState<BusinessSummary | null>(null)
   const [businessLoading, setBusinessLoading] = useState(true)
   const [err, setErr] = useState('')
-  const [excelLoading, setExcelLoading] = useState(false)
   const [businessExcelLoading, setBusinessExcelLoading] = useState(false)
   const [monthWiseExcelLoading, setMonthWiseExcelLoading] = useState(false)
 
   const [year, setYear] = useState(now.getFullYear())
-  const [month, setMonth] = useState('')
+  const [month, setMonth] = useState(String(now.getMonth() + 1))
   const [courseId, setCourseId] = useState('')
   const [mode, setMode] = useState('')
-
-  const [incomeExpense, setIncomeExpense] = useState<IncomeExpenseSummary | null>(null)
-  const [rangeLoading, setRangeLoading] = useState(false)
-  const [fromDate, setFromDate] = useState(() => {
-    const d = new Date()
-    d.setDate(1)
-    return d.toISOString().slice(0, 10)
-  })
-  const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10))
 
   useEffect(() => {
     coursesApi.list().then((r) => setCourses(r.data)).catch(() => {})
@@ -57,21 +43,6 @@ export default function Reports() {
       .catch(() => setErr('Failed to load business report'))
       .finally(() => setBusinessLoading(false))
   }, [year, month, courseId, mode])
-
-  useEffect(() => {
-    if (!fromDate || !toDate) return
-    setRangeLoading(true)
-    reportsApi
-      .incomeExpense({ startDate: fromDate, endDate: toDate })
-      .then((r) => setIncomeExpense(r.data))
-      .catch(() => setIncomeExpense(null))
-      .finally(() => setRangeLoading(false))
-  }, [fromDate, toDate])
-
-  const excelUrl = useMemo(
-    () => incomeExpenseExcelUrl({ startDate: fromDate, endDate: toDate }),
-    [fromDate, toDate]
-  )
 
   function escCsv(v: string | number) {
     const s = String(v ?? '')
@@ -97,12 +68,35 @@ export default function Reports() {
   if (!businessData) return null
 
   const years = Array.from({ length: 8 }, (_, i) => now.getFullYear() - i)
+  const selectedMonthNumber = month ? Number(month) : null
+  const monthWiseRows = businessData.monthWise.length > 0
+    ? businessData.monthWise
+    : selectedMonthNumber
+      ? [{
+          month: selectedMonthNumber,
+          businessValue: businessData.summary.businessValue,
+          income: businessData.summary.collection,
+          expense: businessData.summary.expense,
+          profit: businessData.summary.profit,
+          admissions: businessData.summary.admissions,
+          avgFeePerAdmission: businessData.summary.admissions > 0
+            ? businessData.summary.businessValue / businessData.summary.admissions
+            : 0,
+        }]
+      : []
+  const monthWiseTitle = selectedMonthNumber
+    ? `Month Report (${MONTHS[selectedMonthNumber - 1]} ${year})`
+    : `Month-wise Report (${year})`
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-slate-800 mb-6">Reports</h1>
+      <div className="surface-card p-4 md:p-5 mb-6">
+        <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Analytics Center</p>
+        <h1 className="text-2xl font-bold text-slate-800">Reports</h1>
+        <p className="text-sm text-slate-600 mt-1">Review business performance, collection health, and growth trends.</p>
+      </div>
 
-      <div className="bg-white rounded-lg shadow border border-slate-200 overflow-hidden mb-6">
+      <div className="surface-card overflow-hidden mb-6">
         <div className="p-4 border-b border-slate-200 flex items-center justify-between gap-3">
           <h2 className="font-semibold text-slate-800">Business Filters</h2>
           <button
@@ -134,7 +128,7 @@ export default function Reports() {
             disabled={businessExcelLoading}
             title={businessExcelLoading ? 'Exporting...' : 'Export Business Summary (CSV)'}
             aria-label={businessExcelLoading ? 'Exporting Business Summary' : 'Export Business Summary (CSV)'}
-            className="inline-flex items-center justify-center w-10 h-10 rounded-[5px] bg-emerald-700 text-white hover:bg-emerald-600 disabled:opacity-50"
+            className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-emerald-700 text-white hover:bg-emerald-600 disabled:opacity-50"
           >
             {businessExcelLoading ? (
               <svg viewBox="0 0 24 24" className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -204,9 +198,9 @@ export default function Reports() {
         />
       </div>
 
-      <div className="bg-white rounded-lg shadow border border-slate-200 overflow-hidden mb-8">
+      <div className="surface-card overflow-hidden mb-8">
         <div className="p-4 border-b border-slate-200 flex items-center justify-between gap-3">
-          <h2 className="font-semibold text-slate-800">Month-wise Report ({year})</h2>
+          <h2 className="font-semibold text-slate-800">{monthWiseTitle}</h2>
           <button
             type="button"
             onClick={() => {
@@ -215,7 +209,7 @@ export default function Reports() {
                 downloadCsv(
                   `month-wise-report-${year}.csv`,
                   ['Month', 'Business Value', 'Collection', 'Expense', 'Profit', 'Admissions', 'Avg/Admission'],
-                  businessData.monthWise.map((m) => [
+                  monthWiseRows.map((m) => [
                     MONTHS[m.month - 1],
                     m.businessValue,
                     m.income,
@@ -232,7 +226,7 @@ export default function Reports() {
             disabled={monthWiseExcelLoading}
             title={monthWiseExcelLoading ? 'Exporting...' : 'Export Month-wise Report (CSV)'}
             aria-label={monthWiseExcelLoading ? 'Exporting Month-wise Report' : 'Export Month-wise Report (CSV)'}
-            className="inline-flex items-center justify-center w-10 h-10 rounded-[5px] bg-emerald-700 text-white hover:bg-emerald-600 disabled:opacity-50"
+            className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-emerald-700 text-white hover:bg-emerald-600 disabled:opacity-50"
           >
             {monthWiseExcelLoading ? (
               <svg viewBox="0 0 24 24" className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -249,7 +243,9 @@ export default function Reports() {
           </button>
         </div>
         <div className="md:hidden p-3 space-y-3">
-          {businessData.monthWise.map((m) => (
+          {monthWiseRows.length === 0 ? (
+            <p className="text-slate-500">No data available for the selected filters.</p>
+          ) : monthWiseRows.map((m) => (
             <div key={m.month} className="border border-slate-200 rounded-lg p-3">
               <div className="flex items-center justify-between gap-2 mb-2">
                 <p className="font-semibold text-slate-800">{MONTHS[m.month - 1]}</p>
@@ -279,7 +275,9 @@ export default function Reports() {
             </tr>
           </thead>
           <tbody>
-            {businessData.monthWise.map((m) => (
+            {monthWiseRows.length === 0 ? (
+              <tr><td className="px-4 py-6 text-slate-500 text-center" colSpan={7}>No data available for the selected filters.</td></tr>
+            ) : monthWiseRows.map((m) => (
               <tr key={m.month} className="border-t border-slate-200">
                 <td className="px-4 py-3 font-medium whitespace-nowrap">{MONTHS[m.month - 1]}</td>
                 <td className="px-4 py-3 text-emerald-700 whitespace-nowrap">{fmt(m.businessValue)}</td>
@@ -296,7 +294,7 @@ export default function Reports() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        <div className="bg-white rounded-lg shadow border border-slate-200 overflow-hidden">
+        <div className="surface-card overflow-hidden">
           <h2 className="p-4 font-semibold text-slate-800 border-b border-slate-200">Course-wise Breakdown</h2>
           <div className="md:hidden p-3 space-y-3">
             {businessData.courseBreakdown.length === 0 ? (
@@ -338,7 +336,7 @@ export default function Reports() {
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow border border-slate-200 overflow-hidden">
+        <div className="surface-card overflow-hidden">
           <h2 className="p-4 font-semibold text-slate-800 border-b border-slate-200">Year-wise Summary</h2>
           <div className="md:hidden p-3 space-y-3">
             {businessData.yearlySummary.map((y) => (
@@ -386,65 +384,6 @@ export default function Reports() {
         <TopList title="Top Paid Students" rows={businessData.topPaid} />
         <TopList title="Top Pending Students" rows={businessData.topPending} />
       </div>
-
-      <div className="bg-white rounded-lg shadow border border-slate-200 p-4 mb-6">
-        <h2 className="font-semibold text-slate-800 mb-3">Custom Duration Income & Expense</h2>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end mb-4">
-          <div>
-            <label className="block text-sm text-slate-600 mb-1">From Date</label>
-            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2" />
-          </div>
-          <div>
-            <label className="block text-sm text-slate-600 mb-1">To Date</label>
-            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2" />
-          </div>
-          <div className="text-sm text-slate-500 md:col-span-2">
-            {rangeLoading ? 'Loading duration summary...' : `Showing from ${fromDate} to ${toDate}`}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-          <MetricCard label="Income (Duration)" value={fmt(incomeExpense?.income ?? 0)} tone="green" />
-          <MetricCard label="Expense (Duration)" value={fmt(incomeExpense?.expense ?? 0)} tone="red" />
-          <MetricCard label="Profit (Duration)" value={fmt(incomeExpense?.profit ?? 0)} />
-        </div>
-
-        <button
-          type="button"
-          onClick={async () => {
-            setExcelLoading(true)
-            try {
-              const url = await downloadWithAuth(excelUrl)
-              const a = document.createElement('a')
-              a.href = url
-              a.download = 'income-expense-report.xlsx'
-              a.click()
-              URL.revokeObjectURL(url)
-            } catch (e) {
-              showToast({ message: (e as Error).message, type: 'error' })
-            } finally {
-              setExcelLoading(false)
-            }
-          }}
-          disabled={excelLoading}
-          title={excelLoading ? 'Exporting...' : 'Download Income & Expense (Excel)'}
-          aria-label={excelLoading ? 'Exporting Excel' : 'Download Income & Expense (Excel)'}
-          className="inline-flex items-center justify-center w-10 h-10 rounded-[5px] bg-emerald-700 text-white hover:bg-emerald-600 disabled:opacity-50"
-        >
-          {excelLoading ? (
-            <svg viewBox="0 0 24 24" className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-              <path d="M21 12a9 9 0 1 1-3.2-6.9" />
-            </svg>
-          ) : (
-            <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 3v12" />
-              <path d="m7 10 5 5 5-5" />
-              <path d="M5 21h14" />
-            </svg>
-          )}
-          <span className="sr-only">{excelLoading ? 'Exporting Excel' : 'Download Income & Expense (Excel)'}</span>
-        </button>
-      </div>
     </div>
   )
 }
@@ -452,7 +391,7 @@ export default function Reports() {
 function MetricCard({ label, value, tone }: { label: string; value: string; tone?: 'green' | 'red' | 'amber' }) {
   const color = tone === 'green' ? 'text-green-600' : tone === 'red' ? 'text-red-600' : tone === 'amber' ? 'text-amber-600' : 'text-slate-800'
   return (
-    <div className="bg-white rounded-lg shadow p-4 border border-slate-200">
+    <div className="surface-card p-4">
       <p className="text-slate-500 text-sm whitespace-nowrap">{label}</p>
       <p className={`text-xl font-semibold ${color}`}>{value}</p>
     </div>
@@ -461,7 +400,7 @@ function MetricCard({ label, value, tone }: { label: string; value: string; tone
 
 function TopList({ title, rows }: { title: string; rows: Array<{ rollNo: string; name: string; amount: number }> }) {
   return (
-    <div className="bg-white rounded-lg shadow border border-slate-200 overflow-hidden">
+    <div className="surface-card overflow-hidden">
       <h2 className="p-4 font-semibold text-slate-800 border-b border-slate-200">{title}</h2>
       <div className="md:hidden p-3 space-y-3">
         {rows.length === 0 ? (
@@ -497,3 +436,4 @@ function TopList({ title, rows }: { title: string; rows: Array<{ rollNo: string;
     </div>
   )
 }
+

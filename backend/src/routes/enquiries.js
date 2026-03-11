@@ -18,6 +18,7 @@ router.get('/', async (req, res) => {
         { phoneNumber: new RegExp(search, 'i') },
         { course: new RegExp(search, 'i') },
         { qualification: new RegExp(search, 'i') },
+        { description: new RegExp(search, 'i') },
       ];
     }
 

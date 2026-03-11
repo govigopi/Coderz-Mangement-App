@@ -19,7 +19,7 @@ export default function PaymentReceiptView({ invoice, receipt, studentLabel, onC
   const handlePrint = () => window.print()
 
   return (
-    <div id="receipt-print-area" className="bg-white rounded-lg shadow-lg max-w-2xl mx-auto p-4 sm:p-8 print:shadow-none print:p-0">
+    <div id="receipt-print-area" className="bg-white rounded-lg shadow-lg max-w-2xl mx-auto max-h-[calc(100dvh-2rem)] overflow-y-auto p-4 sm:p-8 print:max-h-none print:overflow-visible print:shadow-none print:p-0">
       <div className="flex flex-col sm:flex-row justify-between items-start gap-3 mb-6 print:mb-4">
         <div>
           <img src={coderzLogo} alt="Coderz Academy" className="h-16 w-auto mb-2" />
